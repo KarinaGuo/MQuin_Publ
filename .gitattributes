@@ -1,0 +1,7 @@
+fitted.res.animal* filter=lfs diff=lfs merge=lfs -text
+*_man.txt filter=lfs diff=lfs merge=lfs -text
+iter_2-gwas* filter=lfs diff=lfs merge=lfs -text
+iter_4-gwas* filter=lfs diff=lfs merge=lfs -text
+LeavesShootInfect* filter=lfs diff=lfs merge=lfs -text
+*.vcf filter=lfs diff=lfs merge=lfs -text
+sqrt_mean_COI* filter=lfs diff=lfs merge=lfs -text

@@ -1,0 +1,11 @@
+
+############################################# PCA 50k Neutral SNPs 
+
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/parent_iter_2/data/catvcf/Mq_filtmiss_cat.vcf.gz" --maf 0.05 --thin 5000 --max-missing 0.5 --recode --recode-INFO-all --out /home/karina/mqgwas/parent_iter_2/PCA/Mq_50kthin.vcf.gz
+
+# After filtering, kept 47233 out of a possible 47731087 Sites
+
+############################################# PCA 60k Neutral SNPs
+
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/parent_iter_2/data/catvcf/Mq_filtmiss_cat.vcf.gz" --keep "/recer1/karina/parents/iter_2/data/meta/out_library_list_30042025.txt" --maf 0.05 --thin 4000 --max-missing 0.5 --recode --recode-INFO-all --out /home/karina/mqgwas/parent_iter_2/PCA_3/Mq_60kthin.vcf
+

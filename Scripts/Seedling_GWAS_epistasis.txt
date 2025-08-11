@@ -1,0 +1,377 @@
+################################################## Rerunning GWAS with MQ=15 AND hwe 1e-5
+BASE_DIR=/home/karina/mqgwas/iter_4
+
+  cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 96 ${BASE_DIR}/code/sh/submit_mpileup_script.sh {} "${BASE_DIR}"
+
+# Removing indels and only keeping biallelic sites
+  cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 96 ${BASE_DIR}/code/sh/submit_vcftools_script.sh {} "${BASE_DIR}"
+
+# The list of individuals to be filtered per depth has already been calculated previously therefore left out from recalculating
+
+
+# Remove all low depth sites. Masking sites with DP6 GQ20. Removing by missingness 200.
+  cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 96 ${BASE_DIR}/code/sh/submit_vcftools_script_2.sh {} "${BASE_DIR}"
+
+  cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 96 ${BASE_DIR}/code/sh/submit_vcftools_hwe.sh {} "${BASE_DIR}"
+
+/data/genomics/apps/bcftools-1.17/bcftools concat -f ${BASE_DIR}/data/meta/Mqui_region_vcfs_hwe.txt -Oz -o ${BASE_DIR}/data/catvcf/Mq_filthwe_cat.vcf.gz
+
+java -jar -Xmx900g /data/genomics/apps/beagle/beagle.22Jul22.46e.jar gt=${BASE_DIR}/data/catvcf/Mq_filthwe_cat.vcf.gz out=${BASE_DIR}/data/catvcf/Mq_hwe_cat.beagle impute=true nthreads=96
+
+# Unzip imputed file and moved relevant GWAS file
+gzip -d "${BASE_DIR}/data/catvcf/Mq_hwe_cat.beagle.vcf.gz"
+mv ${BASE_DIR}/data/catvcf/Mq_hwe_cat.beagle.vcf ${BASE_DIR}/gwas
+
+# Running GWAS on COI and RGR!
+docker run -v ${BASE_DIR}/gwas/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_hwe_cat.beagle.vcf -pf GWAS_phenotype_height_COItransformedfoursqrt.csv -ap -lmm --minaf 0.05
+
+#################### Rerunning gwas with binary groups- MQ=15 only, vcf from iter_4/gwas_2
+
+##### gwas_3 - binary comparison of <2C v 2C> (Method_at_2) & binary comparison of 0 v 1+ (Method_at_0) 
+mv "/home/karina/mqgwas/iter_4/gwas_2/Mq_filt_cat.beagle.vcf" gwas_3
+
+# From Jason's meta data, generated a meta data with manual conversion of Rust scoring to two categories according to the methods
+# Meta file at "~/RBGSyd_Technical Officer/MQuin/Processing Meta/lib_RustScore.csv"
+
+# Removed samples S_861838_S2, S_868442_S1, S_393_S135, S_901_S136
+# 	MethA	MethB
+Resistant	268	231
+Susceptible	250	287
+
+
+ docker run -v /home/karina/mqgwas/iter_4/gwas_3/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf lib_RustScore.csv -ap -lmm --minaf 0.05	
+
+
+#################### Rerunning gwas with focus on immune response groups- MQ=15 only, vcf from iter_4/gwas_2
+##### gwas_4 - 
+# Meta file at "~/RBGSyd_Technical Officer/MQuin/Processing Meta/lib_RustScore.csv"
+# Created 3 groups of "C N ;" (chlorosis, necrosis and flecking) representing different immune responses
+
+mkdir /home/karina/mqgwas/iter_4/gwas_4
+
+mv ${BASE_DIR}/data/catvcf/Mq_filt_cat.beagle.vcf ${BASE_DIR}/gwas_4/.
+
+# From Jason's meta data, generated a meta data with manual conversion of Rust scoring to two categories according to the methods
+# Meta file at "~/RBGSyd_Technical Officer/MQuin/Processing Meta/lib_RustScore.csv"
+
+# Grouped samples by presence of necrosis, chlorosis, or flecking in original scoring. As presence absence (0 or 1)
+
+ docker run -v /home/karina/mqgwas/iter_4/gwas_4/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf lib_RustScore.csv -ap -lmm --minaf 0.05	
+
+mv "/home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf" /home/karina/mqgwas/iter_4/data/catvcf/
+
+
+################################################## GWAS_6 - Rerunning GWAS with MQ=15 AND hwe 1e-5 - Bayesian sparse LMM
+BASE_DIR=/home/karina/mqgwas/iter_4
+
+# Running GWAS on COI and RGR!
+docker run -v /home/karina/mqgwas/iter_4/gwas_6/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf GWAS_phenotype_height_COItransformedfoursqrt.csv -ap -bslmm --minaf 0.05
+
+################################################## GWAS_7 - Rerunning GWAS with MQ=15 AND hwe 1e-5 - Bayesian sparse LMM with increase steps (10x) and burnin (20% steps)
+BASE_DIR=/home/karina/mqgwas/iter_4
+
+mkdir gwas_7
+mv gwas_6/Mq_filt_cat.beagle.vcf gwas_7
+cp gwas_6/GWAS_phenotype_height_COItransformedfoursqrt.csv  gwas_7
+docker run -v /home/karina/mqgwas/iter_4/gwas_7/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf GWAS_phenotype_height_COItransformedfoursqrt.csv --sampling 10000000 --burn 2000000 -ap -bslmm --minaf 0.05
+
+
+################################################## GWAS_2 - Rerunning GWAS 2 removing the 1 techrep
+
+rsync -arv /recer1/karina/seedlings/iter_4/gwas_2/ /home/karina/mqgwas/iter_4/gwas_2/
+rsync -arv "/recer1/karina/seedlings/iter_4/data/catvcf/Mq_filt_cat.beagle.vcf" /home/karina/mqgwas/iter_4/gwas_2/
+
+# edit GWAS_phenotype_height_COItransformedfoursqrt.csv file removing _1_ techreps
+docker run -v /home/karina/mqgwas/iter_4/gwas_2/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf GWAS_phenotype_height_COItransformedfoursqrt.csv -ap -lmm --minaf 0.05
+
+
+########################## Looking for epistasis..
+# Filter vcf to top0.001 snps
+awk -F ',' 'NR > 1 {OFS="\t"; print $2, $5}' "/home/karina/mqgwas/iter_4/gwas/Output/Linear_Mixed_Model/COI/COI_20231023_054900/best_p-values/p_wald_COI_mod_sub_GWAS_phenotype_height_COItransformedfoursqrt.part1_Mq_hwe_cat.beagle_top0.001.csv" > /home/karina/mqgwas/iter_4/iter4_gwas_p001_sigSNPlocs.txt
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.vcf.gz" --positions /home/karina/mqgwas/iter_4/iter4_gwas_p001_sigSNPlocs.txt --recode --recode-INFO-all --out /home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_iter4_gwas_p001_sigSNP
+
+# Input is plink
+/data/genomics/apps/plink2/plink2 --vcf /home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_iter4_gwas_p001_sigSNP.recode.vcf --allow-extra-chr --keep-allele-order --set-missing-var-ids @:# --make-bed --out /home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_iter4_gwas_p001_sigSNP_plink --threads 96
+## didn't work out :( 
+
+# 2. BOOST - plink
+# Creating pheno
+From R, run Calculating metrics.R in /Processing Meta.
+> pheno <- seedlings_all_library[,c("NSWID", "LIBRARY", "COI")]
+pheno$LIBRARY <- gsub("_", "~", pheno$LIBRARY)
+pheno$CaseControl <- ifelse(pheno$COI==0, "1", "2")
+colnames(pheno)[c(1,2)] <- c("FID", "IID")
+pheno <- pheno[,-c(3)]
+pheno[is.na(pheno)] <- 1
+
+pheno <- pheno %>%
+     group_by(FID) %>%
+     mutate(FID = first(IID)) # FIDs had to present within IID???????? Works but wtf plink
+
+write.csv(pheno, file = "~/RBGSyd_Technical Officer/MQuin/Seedling GWAS/Filtering/Iteration 4/Epistasis/epistasis_pheno.csv", row.names=FALSE, quote=FALSE)
+
+# Convert sample name as plink uses _ as a delim
+sed 's/_/~/g' /home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_iter4_gwas_p001_sigSNP.recode.vcf > /home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_iter4_gwas_p001_sigSNP.renamed.vcf
+
+# Testing fast epistasis on marker x marker epistasis
+/data/genomics/apps/plink1/plink --vcf /home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_iter4_gwas_p001_sigSNP.renamed.vcf --pheno "/home/karina/mqgwas/iter_4/data/meta/phenotype_height_COItransformedfoursqrt.rename.tsv"  --pheno-name CaseControl --allow-no-sex --set-missing-var-ids @:# --allow-extra-chr --fast-epistasis case-only --epi1 5e-6 --out /home/karina/mqgwas/iter_4/epistasis/plink_fast_epi_boost --recode --threads 96
+
+head "/home/karina/mqgwas/iter_4/epistasis/plink_fast_epi_boost.epi.co.summary"
+
+# Testing fast epistasis on CHR8 vcf
+rsync -arv "/home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf" /home/karina/mqgwas/iter_4/data/catvcf/
+bgzip "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.beagle.vcf"  --threads 96
+/data/genomics/apps/bcftools-1.17/bcftools index "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.beagle.vcf.gz" --threads 96
+
+/data/genomics/apps/bcftools-1.17/bcftools view "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.beagle.vcf.gz" --regions MqA_CHR08 --threads 96 --output "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_CHR08.beagle.vcf" --output-type v
+
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_CHR08.beagle.vcf" > "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat_CHR08.beagle.renamed.vcf"
+rm "/home/karina/mqgwas/iter_4/epistasis/test_chr08/Mq_filt_cat_CHR08.beagle.vcf"
+
+sed 's/,/\t/g' "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.csv"  > "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv" 
+
+LOG="/home/karina/mqgwas/iter_4/epistasis/test_chr08/log.txt"
+/data/genomics/apps/plink1/plink --vcf "/home/karina/mqgwas/iter_4/epistasis/test_chr08/Mq_filt_cat_CHR08.beagle.renamed.vcf" --pheno "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv" --allow-no-sex --set-missing-var-ids @:# --allow-extra-chr --fast-epistasis --epi1 5e-6 --out /home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis --recode --threads 96 2>&1 >> $LOG
+
+## Testing manual conversion of pedigree...
+awk '{print $1, $2}' "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv" > "/home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv"
+
+awk -F'\t' '{print $3, $2}' "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv" > "/home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree_phenotype.tsv"
+
+awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis.ped" > "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_alt.ped"
+
+awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis.nosex" > "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_alt.nosex"
+
+mv "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_alt.ped" "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis.ped"
+
+mv "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_alt.nosex" "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis.nosex"
+
+awk 'NR==FNR{lookup[$2]=$1;next} {if ($2 in lookup) $6=lookup[$2]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree_phenotype.tsv "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis.ped" > "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_alt.ped"
+
+mv "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_alt.ped" "/home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis.ped"
+
+## Rerunning epistasis with kinship wrangled in
+LOG="/home/karina/mqgwas/iter_4/epistasis/test_chr08/log.txt"
+/data/genomics/apps/plink1/plink --file /home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis --pheno "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv" --fast-epistasis boost --allow-extra-chr --allow-no-sex --out /home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_plinked --threads 96 2>&1 >> $LOG
+
+## Rerunning epistasis with kinship wrangled in in comparison to first fast epistasis result
+LOG="/home/karina/mqgwas/iter_4/epistasis/test_chr08/log.txt" 
+/data/genomics/apps/plink1/plink --file /home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis --pheno "/home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv" --fast-epistasis --epi1 5e-6 --allow-extra-chr --allow-no-sex --out /home/karina/mqgwas/iter_4/epistasis/test_chr08/plink_chr08_epistasis_plinked_epi1noboost --threads 96 2>&1 >> $LOG
+
+
+######
+
+# Epistasis on whole genome by sections
+
+/data/genomics/apps/bcftools-1.17/bcftools query -f '%CHROM %POS\n' "/home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf" > /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.pos
+/data/genomics/apps/bcftools-1.17/bcftools query -f '%CHROM\n' "/home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf" > /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.chroms
+sort -u /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.chroms > /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.chroms_uniq
+rm /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.chroms
+
+# Chromosome and position list
+cd /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta
+
+awk -F ',' 'NR > 1 {OFS="\t"; print $2, $5}' "/home/karina/mqgwas/iter_4/gwas/Output/Linear_Mixed_Model/COI/COI_20231023_054900/best_p-values/p_wald_COI_mod_sub_GWAS_phenotype_height_COItransformedfoursqrt.part1_Mq_hwe_cat.beagle_top0.001.csv" > iter4_gwas_p001_sigSNPlocs
+
+while IFS= read -r CHR; do
+    cat iter4_gwas_p001_sigSNPlocs > Mq_filt_cat.beagle.iter4.pos_${CHR}
+    grep "$CHR" Mq_filt_cat.beagle.iter4.pos | tr ' ' '\t' >> Mq_filt_cat.beagle.iter4.pos_${CHR}
+done < Mq_filt_cat.beagle.iter4.chroms_uniq
+
+# Filter vcf by each chr_pos file
+cd /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/
+
+while IFS= read -r CHR; do
+    /usr/bin/vcftools --vcf /home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf --positions /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.pos_${CHR} --out Mq_filt_cat.beagle_${CHR} --recode --recode-INFO-all
+    sed 's/_/~/g' Mq_filt_cat.beagle_${CHR}.recode.vcf > Mq_filt_cat.beagle_${CHR}.recode.renamed.vcf
+    rm "/home/karina/mqgwas/iter_4/epistasis/whole_fast/data/Mq_filt_cat.beagle_${CHR}.recode.vcf"
+done < /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.chroms_uniq
+
+# VCF Plink
+while IFS= read -r CHR; do
+    mkdir /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}
+done < Mq_filt_cat.beagle.iter4.chroms_uniq
+
+while IFS= read -r CHR; do
+    LOG="/home/karina/mqgwas/iter_4/epistasis/whole_fast/results/log_files/log_${CHR}.txt"
+    EPI_LOG="/home/karina/mqgwas/iter_4/epistasis/whole_fast/results/log_files/log_epistasis_${CHR}.txt"
+
+    date >> ${LOG}
+
+
+    # Creating plinks from vcf
+    /data/genomics/apps/plink1/plink --vcf /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/Mq_filt_cat.beagle_${CHR}.recode.renamed.vcf --recode --double-id --allow-extra-chr --allow-no-sex --out /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis --threads 96 
+
+    # Wrangling pedigree
+    awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis.ped > /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis_alt.ped
+
+    awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis.nosex > /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis_alt.nosex
+
+    mv /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis_alt.ped /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis.ped
+
+    mv /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis_alt.nosex /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis.nosex
+
+    awk 'NR==FNR{lookup[$2] = $1; next} {if ($2 in lookup) $6=lookup[$2]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree_phenotype.tsv /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis.ped > /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis_alt.ped
+
+    mv /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis_alt.ped /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis.ped
+
+    # Runnning fast-epistasis
+    date >> ${EPI_LOG}
+
+    /data/genomics/apps/plink1/plink --file /home/karina/mqgwas/iter_4/epistasis/whole_fast/data/plink_${CHR}/plink_${CHR}_epistasis --pheno /home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv --fast-epistasis boost --set-missing-var-ids @:# --allow-extra-chr --allow-no-sex --threads 96 --out /home/karina/mqgwas/iter_4/epistasis/whole_fast/results/plink_${CHR}_epistasis_plinked 2>&1 >> $EPI_LOG
+done < /home/karina/mqgwas/iter_4/epistasis/whole_fast/meta/Mq_filt_cat.beagle.iter4.chroms_uniq
+
+# Rerun above with --epi1 5e-6 - note overrides last run
+
+
+#################################
+
+#1. Filter fast-epistasis results of $2 == sigSNP MR
+#- Build list of postions in same format
+tr '\t' ':' < "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs" >  "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs_alt"
+
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs_alt" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs"
+
+# Extracting significant fast SNPs to filter new VCF
+while IFS= read -r CHR; do
+    grep -f "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs" "/home/karina/mqgwas/iter_4/epistasis/whole_fast/results/plink_${CHR}_epistasis_plinked.epi.cc.summary" > /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/plink_${CHR}_epistasis_plinked.epi.cc.summary.filtsigSNP
+done < "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/Mq_filt_cat.beagle.iter4.chroms_uniq"
+
+cat /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/* > /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/concatenated_filter_epi_fast
+
+awk '{print $8}' "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/concatenated_filter_epi_fast" > /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/fast_epi_sigSNPs
+
+sort /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/fast_epi_sigSNPs | uniq > /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/fast_epi_sigSNPs_uniq
+
+rm /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/plink*
+
+# Append sigSNPs
+cat "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs" > /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions
+cat /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/filter_epi_fast/fast_epi_sigSNPs_uniq >> /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions
+
+# Convert file to vcftools appropriate
+tr ':' '\t' < /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions >  /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions_alt
+
+sed 's/~/_/g' /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions_alt > /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions
+
+rm /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions_alt
+
+# Filter vcf
+/usr/bin/vcftools --vcf /home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf --positions /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/fastepi_sigSNP_vcfpositions --out /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/Mq_filt_cat.beagle_fastepi_sigSNP --recode --recode-INFO-all
+
+# Convert vcf to plink
+/data/genomics/apps/plink1/plink --vcf "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/Mq_filt_cat.beagle_fastepi_sigSNP.recode.vcf" --recode --double-id --allow-extra-chr --allow-no-sex --out /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf --threads 96
+
+# Wrangling pedigree
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped"
+
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf.nosex" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.nosex"
+
+awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped"
+
+awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.nosex" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf.nosex"
+
+rm "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.nosex"
+
+awk 'NR==FNR{lookup[$2] = $1; next} {if ($2 in lookup) $6=lookup[$2]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree_phenotype.tsv "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped"
+
+mv "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped" "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped"
+
+/data/genomics/apps/plink1/plink --file /home/karina/mqgwas/iter_4/epistasis/whole_significant/data/plinked_vcf/plink_fastepi_sigSNP_vcf --pheno /home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv --epistasis --set-missing-var-ids @:# --allow-extra-chr --allow-no-sex --threads 96 --out /home/karina/mqgwas/iter_4/epistasis/whole_significant/results/plink_whole_full_noepi1_epistasis_plinked 
+
+# Filter results to only querying sigSNPs
+sed 's/~/_/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs"  > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs_underscore" 
+
+grep -f "/home/karina/mqgwas/iter_4/epistasis/whole_significant/data/iter4_gwas_p001_sigSNPlocs_underscore"  "/home/karina/mqgwas/iter_4/epistasis/whole_significant/results/plink_whole_full_noepi1_epistasis_plinked.epi.cc.summary" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant/results/plink_whole_full_noepi1_epistasis_plinked.epi.cc.summary.MRsigSNPfilt" 
+
+#################################
+# Rerun above with --epi1 5e-6 - reran results to a new folder /whole_signiicant_epi1
+
+#1. Filter fast-epistasis results of $2 == sigSNP MR
+#- Build list of postions in same format
+tr '\t' ':' < "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs" >  "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs_alt"
+
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs_alt" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs"
+
+mkdir  /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/
+
+# Extracting significant fast SNPs to filter new VCF
+while IFS= read -r CHR; do
+    grep -f "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs" "/home/karina/mqgwas/iter_4/epistasis/whole_fast/results/plink_${CHR}_epistasis_plinked.epi.cc.summary" > /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/plink_${CHR}_epistasis_plinked.epi.cc.summary.filtsigSNP
+done < "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/Mq_filt_cat.beagle.iter4.chroms_uniq"
+
+cat /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/* > /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/concatenated_filter_epi_fast
+
+awk '{print $8}' "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/concatenated_filter_epi_fast" > /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/fast_epi_sigSNPs
+
+sort /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/fast_epi_sigSNPs | uniq > /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/fast_epi_sigSNPs_uniq
+
+rm /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/plink*
+
+# Append sigSNPs
+cat "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs" > /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions
+cat /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/filter_epi_fast/fast_epi_sigSNPs_uniq >> /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions
+
+# Convert file to vcftools appropriate
+tr ':' '\t' < /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions >  /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions_alt
+
+sed 's/~/_/g' /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions_alt > /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions
+
+rm /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions_alt
+
+# Filter vcf
+/usr/bin/vcftools --vcf /home/karina/mqgwas/iter_4/gwas_4/Mq_filt_cat.beagle.vcf --positions /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/fastepi_sigSNP_vcfpositions --out /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/Mq_filt_cat.beagle_fastepi_sigSNP --recode --recode-INFO-all
+
+# Convert vcf to plink
+/data/genomics/apps/plink1/plink --vcf "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/Mq_filt_cat.beagle_fastepi_sigSNP.recode.vcf" --recode --double-id --allow-extra-chr --allow-no-sex --out /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf --threads 96
+
+# Wrangling pedigree
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped"
+
+sed 's/_/~/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf.nosex" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.nosex"
+
+awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped"
+
+awk 'NR==FNR {lookup[$2] = $1; next} {if($1 in lookup) $1 = lookup[$1]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree.tsv "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.nosex" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf.nosex"
+
+rm "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.nosex"
+
+awk 'NR==FNR{lookup[$2] = $1; next} {if ($2 in lookup) $6=lookup[$2]; print}' /home/karina/mqgwas/iter_4/epistasis/epistasis_pedigree_phenotype.tsv "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped"
+
+mv "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf_alt.ped" "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf.ped"
+
+/data/genomics/apps/plink1/plink --file /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/plinked_vcf/plink_fastepi_sigSNP_vcf --pheno /home/karina/mqgwas/iter_4/epistasis/epistasis_pheno.tsv --epistasis --set-missing-var-ids @:# --allow-extra-chr --allow-no-sex --threads 96 --out /home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/results/plink_whole_full_epi1_epistasis_plinked 
+
+# Filter results to only querying sigSNPs
+sed 's/~/_/g' "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs"  > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs_underscore" 
+
+grep -f "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/data/iter4_gwas_p001_sigSNPlocs_underscore"  "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/results/plink_whole_full_epi1_epistasis_plinked.epi.cc.summary" > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/results/plink_whole_full_epi1_epistasis_plinked.epi.cc.summary.MRsigSNPfilt" 
+
+
+################################################# Grabbing positions of top 2000 epistatic hits pos1 and pos2 to compare against COI 
+
+# top 2000 pairs
+sort -k6,6nr "/home/karina/mqgwas/iter_4/epistasis/whole_significant_epi1/results/plink_whole_full_noepi1_epistasis_plinked.epi.cc.summary.MRsigSNPfilt" | head -n 2000 > /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/plink_epistasis_top_2000_ChiSq
+
+# extracting positions
+awk '{print $2}' /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/plink_epistasis_top_2000_ChiSq > /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_col2
+
+awk '{print $8}' /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/plink_epistasis_top_2000_ChiSq > /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_col8
+
+mv /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_col2 "/home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all"
+
+cat /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_col8 >> "/home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all"
+
+cat "/home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all" | sort | uniq > "/home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all_uniq"
+
+sed 's/:/\t/g' /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all_uniq > /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all_uniq_repl
+
+# Filtering to those epistatic SNPs
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.vcf.gz" --positions /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/epistasis_POS_all_uniq_repl --recode --recode-INFO-all --out /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/Mq_filt_cat_MRepistatic2000
+
+/usr/bin/vcftools --vcf /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/Mq_filt_cat_MRepistatic2000.recode.vcf --extract-FORMAT-info GT --out /home/karina/mqgwas/iter_4/epistasis/whole_significant_GP/data/Mq_filt_cat_MRepistatic2000_GT
+
+###########################################3 Extracting genotypes from the imputed vcf of top 0.001POS sigSNP pos
+awk -F',' '{print $2 "\t" $5}' "/home/karina/mqgwas/iter_4/gwas_2/Output/Linear_Mixed_Model/COI/COI_20231025_215412/best_p-values/p_wald_COI_mod_sub_GWAS_phenotype_height_COItransformedfoursqrt.part1_Mq_filt_cat.beagle_top0.001.csv" > /home/karina/mqgwas/iter_4/gwas_2/Mq_gwas2iter4_p_0.01_bed.txt
+
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.beagle.vcf.gz" --positions "/home/karina/mqgwas/iter_4/gwas_2/Mq_gwas2iter4_p_0.01_bed.txt" --extract-FORMAT-info GT --out /home/karina/mqgwas/iter_4/data/Mq_filt_cat.beagle_gwas2iter4_p_0.01

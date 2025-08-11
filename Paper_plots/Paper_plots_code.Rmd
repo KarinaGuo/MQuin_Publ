@@ -1,0 +1,1777 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+# Plotting the metadata
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(ggmap)
+library(sf)
+library(caret)
+library(grid)
+library(geosphere)
+library(cluster)
+library(concaveman)
+
+source("C:/Users/swirl/OneDrive/Documents/RBGSyd_Technical Officer/MQuin/Processing Meta/Calculating metrics.R")
+
+theme_set(theme_bw())
+
+parent_meta_filtNA <- parent_meta[!is.na(parent_meta$latitude),] # From Calculating_metrics.R
+#parent_meta_unique_locs <- parent_meta_BV[unique(parent_meta_BV$latitude), ] 
+
+### CLustering FID as populations
+
+distance_matrix <- as.matrix(cbind(parent_meta_filtNA$longitude,parent_meta_filtNA$latitude))
+distance <- (distm(distance_matrix))
+clusters <- as.hclust(agnes(distance, diss = T))
+clust <- cutree(clusters, h = 5000)
+distance_matrix <- as.data.frame(distance_matrix)
+distance_matrix$cluster <- clust
+colnames(distance_matrix) <- c("longitude", "latitude", "cluster")
+distance_matrix_clustered <- distance_matrix %>% group_by (cluster) %>% summarise (mean_long = mean(longitude), mean_lat = mean(latitude))
+
+distance_parent_meta <- left_join(parent_meta_filtNA, distance_matrix, by = c('latitude', 'longitude'))
+
+# Joining cluster to COI
+parent_meta_FID <- parent_meta_filtNA %>% dplyr::select(NSWID, longitude, latitude)
+colnames(parent_meta_FID)[1] <- "NSWID"
+parent_seedlings_COI <- left_join(parent_meta_FID, seedlings_all) %>% filter (!is.na(COI))
+
+parent_seedlings_COI <- left_join(parent_seedlings_COI, distance_matrix)
+parent_seedlings_COI <- parent_seedlings_COI[!(duplicated(parent_seedlings_COI$ID)),]
+mean_parent_seedlings_COI <- left_join(parent_seedlings_COI, distance_matrix_clustered) %>% dplyr::select (cluster, COI, mean_long, mean_lat)
+
+### Plotting
+min_lat <- min(parent_meta_filtNA$latitude)
+max_lat <- max(parent_meta_filtNA$latitude)
+min_long <- min(parent_meta_filtNA$longitude)
+max_long <- max(parent_meta_filtNA$longitude)
+
+borders <- c(bottom = min_lat + min_lat*0.01,
+                 top = max_lat - max_lat*0.01,
+                 left = min_long - min_long*0.005,
+                 right = max_long + max_long*0.005)
+
+map <- ggmap::get_stadiamap(borders, zoom = 8, maptype = "stamen_terrain") 
+
+p1 <- ggmap::ggmap(map) +
+  geom_point (data = parent_meta_filtNA, aes(x=longitude, y=latitude), alpha = 0.1) +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1)) +
+  labs (x = expression("Longitude (" * degree * ")"), y = expression("Latitude (" * degree * ")")) 
+
+p2 <- ggplot() +
+  geom_jitter (data = mean_parent_seedlings_COI, aes(y = COI, x = mean_lat, group = mean_lat), alpha = 0.3, size = 0.3, width = 0.03) +
+  geom_boxplot(data = mean_parent_seedlings_COI, aes(y = COI, x = mean_lat, group = mean_lat), outlier.shape = NA, alpha = 0, width = 0.1, lwd = 0.15) +
+  theme(
+    axis.title.y = element_blank(),
+    axis.text.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_blank()) +
+  coord_flip () +
+  labs(y = "Coefficient of Infection") 
+
+
+p3 <- ggplot(data = mean_parent_seedlings_COI, aes(x = COI, y = after_stat(density))) +
+  geom_histogram(alpha = 0.5, bins = 60) +
+  geom_density() +
+  labs(x = "Coefficient of Infection", y = "Density") +
+  scale_y_continuous(position = "right") +
+  theme(panel.border = element_rect(colour = "black", fill = NA, linewidth = 0.2)) +
+  coord_cartesian(clip = "off") +  # Allow drawing outside the plot area
+  annotation_custom(
+    grob = textGrob("Susceptible", gp = gpar(fontsize=7, fontface = "italic", col = "grey40")),
+    xmin = 85, xmax = 82, ymin = -0.03, ymax = -0.06) +
+  annotation_custom(
+    grob = textGrob("Resistant", gp = gpar(fontsize=7, fontface = "italic", col = "grey40")),
+    xmin = -5, xmax = -2, ymin = -0.03, ymax = -0.06  ) 
+
+
+### Adding Melaleuca spp.
+maximum_lat = -9.71692795356775  
+minimum_lat = -37.5 
+maximum_long = 158.404119605553 
+minimum_long = 138.0893403513499
+
+Mel_spdist <- list.files(path = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Species_dist/")
+Mel_spp=NULL
+Mel_point_clean=NULL
+Mel_buff_clean=NULL
+for (fp in Mel_spdist){
+  Melsp <- read.csv(paste0("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Species_dist/", fp))
+  species <- Melsp$scientificName
+
+  Melsp <- Melsp %>% 
+    filter(!is.na(decimalLatitude)) %>% 
+    filter(decimalLatitude < maximum_lat & 
+            decimalLatitude > minimum_lat &
+            decimalLongitude < maximum_long &
+            decimalLongitude > minimum_long)
+  
+  clean_res <-  CoordinateCleaner::clean_coordinates(Melsp, lon = "decimalLongitude", lat = "decimalLatitude"); Melsp_clean <- Melsp[clean_res$.summary,] 
+  
+  Melsp <- Melsp_clean %>% 
+    filter(countryCode=="AU") %>% 
+    select(decimalLatitude, decimalLongitude)
+  
+  Melsp_noloc_sf <- Melsp %>% 
+    st_as_sf(coords = c("decimalLongitude", "decimalLatitude"), crs = 4283) %>% 
+    st_simplify(dTolerance = 10000)
+  Melsp_noloc_sf_coord <- Melsp_noloc_sf %>% 
+    st_coordinates()
+  
+  Mel_spnoloc_conc <- concaveman(points=(Melsp_noloc_sf_coord), concavity=2)
+  Mel_spnoloc_poly <- st_polygon(list(Mel_spnoloc_conc)) %>%
+  st_sfc(crs = 4283) %>%
+  st_sf()
+  Mel_spnoloc_buff <- st_buffer(Mel_spnoloc_poly, dist = 20000)
+  Mel_spnoloc_buff_coords <- st_coordinates(Mel_spnoloc_buff)
+  
+  species <- sub(" subsp\\..*", "", species)  
+  res <- as.data.frame(cbind(unique(species), as.data.frame(Mel_spnoloc_conc)))
+  colnames(res) <- c("Species","decimalLatitude", "decimalLongitude")
+  Mel_spp <- data.frame(rbind(Mel_spp, res))
+  Mel_point_clean <- data.frame(rbind(Mel_point_clean, cbind(Species=unique(species), as.data.frame(Melsp_noloc_sf_coord))))
+  Mel_buff_clean <- data.frame(rbind(Mel_buff_clean, cbind(Species=unique(species), as.data.frame(Mel_spnoloc_buff))))
+}
+
+#colnames(Mel_point_clean) <- c("Species","decimalLatitude", "decimalLongitude")
+#colnames(Mel_buff_clean)[1:3] <- c("Species","decimalLatitude", "decimalLongitude")
+Mel_buff_clean_sf <- st_as_sf(Mel_buff_clean) %>% rmapshaper::ms_simplify(keep=0.001)
+
+bottom = minimum_lat + minimum_lat*0.005
+top = maximum_lat - maximum_lat*0.005
+left = minimum_long - minimum_long*0.005
+right = maximum_long + maximum_long*0.005
+
+library(ozmaps)
+sf_oz <- ozmap_data("states")
+
+
+unique_col <- c("#bc83fc", "#f07fd0", "#f77c7c", "#4d59ff","#ffe838")
+unique_col_alpha <- alpha(unique_col, 0.5)
+
+p4 <- ggplot() +
+  geom_sf (data = sf_oz, fill = "white") +
+  geom_sf (data= Mel_buff_clean_sf, aes(colour=Species, fill=Species), linewidth=0.2, alpha = 0.2) +
+  geom_sf (data= Mel_buff_clean_sf %>% filter(Species %in% "Melaleuca quinquenervia"), aes(colour=Species, fill=Species), linewidth=0.2, alpha = 0.0005) +
+  xlim(c(left, right)) + ylim (minimum_lat+1.5, top) +
+  scale_fill_manual(values = unique_col) +
+  scale_color_manual(values = unique_col_alpha) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y=element_blank(),
+        axis.text.y=element_blank(),
+        axis.ticks.y=element_blank(),
+        legend.position= c(0.5, -0.1), 
+        legend.title = element_text(size = 6), 
+        legend.text = element_text(size = 6, face = "italic"), 
+        legend.key.size = unit(0.5, "lines"), 
+        legend.margin=margin()) +
+  guides(color = guide_legend(override.aes = list(size = 2), nrow=2),
+         fill = guide_legend(override.aes = list(size = 2), nrow=2))
+         #pattern_fill = 'none',
+         #pattern_fill2 = 'none')
+
+## Plot all
+library(patchwork)
+plot_sampling <- p1 + p2 + p4 + p3 + plot_layout(height = c(3,1)) + 
+  plot_annotation(tag_levels = 'a', tag_suffix = ')')
+
+#ggsave(plot_sampling, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Sampling.jpg", width = 2500, height = 2570, limitsize = FALSE, units = "px")
+
+```
+
+# Plotting Population demographics
+```{r}
+library(patchwork)
+```
+
+## PCA
+```{r}
+## NSW & QLD Mquin dataset
+
+# PCA of thinned SNPs
+# Tmp change of parent SNPs
+parent_meta_tmp <- parent_meta; "QLD" -> parent_meta_tmp$Pop[is.na(parent_meta_tmp$Pop)]
+# 1. Convert VCF to genlight
+library(vcfR); library(RRtools); library(adegenet); library(tidyverse)
+
+dataset = 'Parent'
+metadata = parent_meta
+#PCA_2
+file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Mq_60kthin.vcf.recode.vcf"; outfolder= "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/"
+#file = paste0("~/RBGSyd_Technical Officer/MQuin/",dataset,"/PCA/Mq_50kthin.vcf.gz.recode.vcf"); outfolder = paste0("~/RBGSyd_Technical Officer/MQuin/",dataset,"/PCA")
+
+# Running alternative run_PCA function
+  species = 'MelaQuin'
+  
+  setwd(outfolder)
+  
+  vcf <- read.vcfR(file)
+  SNP_count <- nrow(vcf@gt)
+  dart_gl <- vcfR2genlight(vcf)
+  
+  toRemove <- is.na(glMean(dart_gl, alleleAsUnit = FALSE)) # TRUE where NA
+  which(toRemove) # position of entirely non-typed loci
+  dart_gl_remNA <- dart_gl[, !toRemove]
+  #glPca(dart_gl_remNA, parallel = TRUE)
+  
+  pca_file   <- paste(outfolder,"/",species,"_",dataset,"_PCA_rmtechreps.rda",sep="")
+  pca_plot_1   <- paste(outfolder,"/",species,"_",dataset,"_PCA_rmtechreps.jpg",sep="")
+  
+  gl_pca <- glPca(dart_gl_remNA, nf=5, parallel=TRUE)
+  
+  eig_var_sum <- sum(gl_pca$eig)
+  eig_var_PC1 <- gl_pca$eig[1]/eig_var_sum*100
+  eig_var_PC2 <- gl_pca$eig[2]/eig_var_sum*100
+  
+  gl_PCA_plotres <- as.data.frame(gl_pca$scores)
+  gl_PCA_plotres$sample_lib_NSW <- rownames(gl_PCA_plotres)
+  gl_PCA_plotres <- left_join(gl_PCA_plotres, metadata)
+  
+  gl_PCA_plotres_locality <- left_join(gl_PCA_plotres, pops_all_parents_remna_actual[,c(1,4,5)])
+
+  
+  # Adding convex hulls around state samps
+  
+  hull <- gl_PCA_plotres_locality %>%
+    group_by(State) %>% 
+    slice(chull(PC1, PC2)) %>% 
+    ungroup()
+  
+  plot <- ggplot() + 
+    #ggforce::geom_mark_ellipse(data=gl_PCA_plotres_locality, aes(x=PC1, y=PC2, fill = State), expand = unit(1,"mm"), alpha=0.1, linetype = 2, colour = "grey") +
+    geom_polygon(data=hull, aes(x=PC1, y=PC2, fill=State), alpha=0.1) +
+    geom_point(data=gl_PCA_plotres_locality, aes(x=PC1, y=PC2, colour = locality), size = 1) +
+    theme_bw() +
+    labs (title = paste("PCA Clustering of",SNP_count,"Randomly Thinned SNPs"), 
+          x=paste("PC1 (", round(eig_var_PC1, digits = 3),"%)"), 
+          y=paste("PC2 (", round(eig_var_PC2, digits = 3),"%)"),
+          color = "Population") 
+  
+  save(gl_pca, file=pca_file)
+  ggsave(plot, file = pca_plot_1, width = 4000, height = 2000, units = 'px')
+
+```
+
+
+## LEA - conStruct
+```{r}
+library(LEA)
+library(ggmap)
+library(sf)
+library(caret)
+library(scatterpie)
+library(ozmaps)
+library(tidyverse)
+
+setwd("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/lea")
+
+indQ <- read.csv(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/lea/MelaleucaQuinquenervia_NA_K3_indQ.txt", header = F)
+popQ <- read.csv(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/lea/MelaleucaQuinquenervia_NA_K3_popQ.txt", header = F)
+load("~/RBGSyd_Technical Officer/MQuin/Parent/ConStruct/Iter_3/data/VCFData_wmeta.Rdata")
+
+pop = data$meta$analyses$RR1
+pop_ll <- matrix(NA, nrow = length(unique(pop)), ncol = 2)
+pop_Q_vals <- matrix(NA, nrow = length(unique(pop)), ncol = 3)
+
+lea_file_genotype <- read.lfmm("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/lea/MelaleucaQuinquenervia_NA.lfmm")
+snmf_project <- snmf("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/lea/MelaleucaQuinquenervia_NA_genotype.geno", K=1:3, entropy = TRUE, repetitions = 9, project = "new")
+ce <- cross.entropy(snmf_project, K = 3)
+Rbest <- which.min(ce)
+
+
+qmatrix <- Q(snmf_project, K = 3, run = Rbest)
+
+# Creating empty matrices to populate for plotting
+
+rownames(pop_Q_vals) <- rownames(pop_ll) <- unique(pop)
+
+for (p in unique(pop)) {
+      qpop <- qmatrix[pop == p, ]
+      if (length(which(pop == p)) == 1) {
+        pop_Q_vals[p, ] = qpop
+        pop_ll[p, ] = c(data$meta$long[pop == p], data$meta$lat[pop == p])
+      } else {
+        pop_Q_vals[p, ] = colMeans(qpop)
+        pop_ll[p, ] = colMeans(cbind(data$meta$long, data$meta$lat)[pop == p, ])
+      }
+    }
+
+pop_vals <- cbind(unique(pop), pop_ll, pop_Q_vals)
+
+tmp_pop_ll <- na.omit(pop_ll)
+tmp_pop_Q_vals <- subset(pop_Q_vals, rownames(pop_Q_vals) %in% rownames(tmp_pop_ll))
+
+tmp_pop_ll <- as.data.frame(tmp_pop_ll)
+tmp_pop_ll$pop <- row.names(tmp_pop_ll)
+colnames(tmp_pop_ll) <- c("longitude", "latitude", "pop")
+tmp_pop_Q_vals <- as.data.frame(tmp_pop_Q_vals)
+tmp_pop_Q_vals$pop <- row.names(tmp_pop_Q_vals)
+colnames(tmp_pop_Q_vals) <- c("Q1", "Q2", "Q3", "pop")
+pop_Q_val <- left_join(tmp_pop_Q_vals, tmp_pop_ll)
+
+cols <- c("red", "blue", "yellow", "green", "gray", "orange", "violet", "lightgreen")[1:3]
+plot(tmp_pop_ll[, 1:2], xlab = "Longitude", ylab = "Latitude")
+for (i in 1:nrow(tmp_pop_Q_vals)) {
+   mapplots::add.pie(z = as.numeric(tmp_pop_Q_vals[i, 1:3]), x = tmp_pop_ll[i, 1], y = tmp_pop_ll[i, 2], labels = "", col = cols, radius = 0.15, alpha = 0.5)
+  }
+
+## Plotting lea
+#ggmap::register_stadiamaps(KEY) from https://client.stadiamaps.com/dashboard/#
+min_lat <- min(tmp_pop_ll[,2])
+max_lat <- max(tmp_pop_ll[,2])
+min_long <- min(tmp_pop_ll[,1])
+max_long <- max(tmp_pop_ll[,1])
+
+borders <- c(bottom = min_lat + min_lat*0.03,
+                 top = max_lat - max_lat*0.05,
+                 left = min_long - min_long*0.005,
+                 right = max_long + max_long*0.005)
+
+map <- ggmap::get_stadiamap(borders, zoom = 6, maptype = "stamen_toner_lite") 
+
+PD_LEA_plot <- ggmap::ggmap(map) +
+  geom_scatterpie (data=pop_Q_val, aes(x=longitude, y=latitude), size=0.05, cols=c("Q1", "Q2", "Q3"), size=0.5, alpha=0.7) +
+  theme_bw() +
+  labs (x = "Longitude", y = "Latitude") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=0.5), 
+        legend.position='none') 
+
+ggsave(PD_LEA_plot, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/LEA.png", width = 1150, height= 1750, units = 'px', limitsize = F)
+
+### NSW only
+min_lat <- -33
+max_lat <- -29
+min_long <- min((tmp_pop_ll %>% filter(latitude > min_lat & latitude < max_lat))[,1])
+max_long <- max((tmp_pop_ll %>% filter(latitude > min_lat & latitude < max_lat))[,1])
+
+borders <- c(bottom = min_lat + min_lat*0.01,
+                 top = max_lat - max_lat*0.01,
+                 left = min_long - min_long*0.005,
+                 right = max_long + max_long*0.005)
+
+map <- ggmap::get_stadiamap(borders, zoom = 8, maptype = "stamen_toner_lite") 
+
+PD_LEA_plot_NSW <- ggmap::ggmap(map) +
+  geom_scatterpie (data=pop_Q_val, aes(x=longitude, y=latitude, r = 0.07), size=0.05, cols=c("Q1", "Q2", "Q3"),  alpha=0.7) +
+  theme_bw() +
+  labs (x = "Longitude", y = "Latitude") + 
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), 
+        panel.border = element_rect(colour = "black", fill=NA, linewidth=0.5), 
+        legend.position='none') 
+
+ggsave(PD_LEA_plot_NSW, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/LEA_NSW.png", width = 1150, height= 1750, units = 'px', limitsize = F)
+```
+
+## LD
+```{r}
+LDdecay <- read.table("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/LDdecay.stat", sep = "\t", header=FALSE)
+colnames(LDdecay) <- c("Dist","Mean_r2","Mean_D","Sum_r2","Sum_D","NumberPairs")
+
+
+library(tidyverse)
+library(ggforce)
+
+PD_LD_plot <- ggplot(LDdecay, aes(x = Dist, y = Mean_r2)) +
+  geom_point(size = 0.5, alpha=0.5) +
+  labs(x = "Distance", y = expression(paste("Mean ", r^2))) +
+  theme_bw() +
+  xlim(c(0,5000)) +
+  ylim(c(0.1,0.3)) +
+  facet_zoom(xlim = c(0,500),  show.area = TRUE)
+  #geom_vline(xintercept = 400)
+
+## Overall
+
+# Run on the server
+
+# LDdata_all <- read.table(file = "~/RBGSyd_Technical Officer/MQuin/Seedling GWAS/Filtering/Iteration 2/data/Mq_filt_cat.beagle.window10000.hap.ld", header = T)
+# 
+# LDdata_all$dist <- LDdata_all$POS2 - LDdata_all$POS1
+# LDdata_allR2 <- subset(LDdata_all, !is.na(R.2))
+# LDdata_allR2_avg <- aggregate(R.2 ~ dist, LDdata_allR2, mean)
+LDdata_allR2_avg <- read.table(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Mq_filt_cat.beagle.window10000.averaged.hap.ld", header=T)
+
+# By all
+LD_plot <- ggplot(data=LDdata_allR2_avg, aes(x=dist, y=R.2)) +
+  theme_bw() +
+  labs(x = "Distance", y = expression(paste("Mean ", R^2))) +
+  ggforce::facet_zoom(xlim = c(0,1000),  show.area = TRUE) +
+  geom_vline(xintercept = 706, linetype="dashed", linewidth=0.5, color="grey70") +
+  geom_hline(yintercept = (max(LDdata_allR2_avg$R.2))/2, linetype="dashed", linewidth=0.5, color="grey70") +
+  geom_point()
+
+
+#ggsave(LD_plot, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Linkage_Disequilibrium_coloured.png", width = 2000, height= 1750, units = 'px', limitsize = F)
+
+### Average decay rate
+LDdata_all %>% filter (dist==1000) %>% summarise (R2_avg = mean(R.2))
+```
+
+## SMC++
+```{r}
+library(data.table)
+library(stringr)
+library(ggrepel)
+library(tidyverse)
+
+##################### Plotting individual SMCPP pops results
+
+SMCPP_indiv_NSW  <- read.csv(file="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/SMCPP/Run_11/Mquin_smcpp_plot.csv") %>% select(x, y) 
+SMCPP_indiv_QLD  <- read.csv(file="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/SMCPP/Run_8/Mquin_smcpp_plot.csv") %>% select(x, y) 
+
+SMCPP_indiv_NSW$x_1000 <- SMCPP_indiv_NSW$x/1000 
+SMCPP_indiv_NSW <- SMCPP_indiv_NSW %>% mutate (Location = "NSW")
+SMCPP_indiv_QLD$x_1000 <- SMCPP_indiv_QLD$x/1000 
+SMCPP_indiv_QLD <- SMCPP_indiv_QLD %>% mutate (Location = "QLD")
+SMCPP_indiv <- rbind(SMCPP_indiv_NSW, SMCPP_indiv_QLD)
+
+PD_SMCPP_plot1 <- ggplot(SMCPP_indiv, aes(x=x_1000, y=log(y), colour = Location)) +
+  geom_point (size = 1.2) +
+  geom_line () +
+  #geom_smooth (method = loess, formula = y~x, se=F, linewidth=0.8, colour = "grey", lty = 2, method.args = list(span = 0.3)) +
+  theme_bw() +
+  xlim(c(10,600)) + ylim(c(9,15))+
+  labs (x="Generations (thousands)", y="Logged (natural) effective population size")
+PD_SMCPP_plot1
+
+##################### Plotting SMCPP pops results
+csv_files <- list.files(path = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/SMCPP/Run_5/plot/", pattern = ".csv", full.names=TRUE)
+all_pops=NULL
+for (filepath in csv_files) {
+  # Read the CSV file
+  data <- read.csv(filepath)
+  data <- data[,c(2,3)] 
+  pop_name <- gsub("C:/Users/swirl/OneDrive/Documents/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/SMCPP/Run_5/plot/Mquin_|_smcpp_plot.csv", "", filepath)
+  data <- data %>% mutate(filename = paste(pop_name)) 
+  # Merge the 'ID' column with the existing merged data
+  all_pops <- rbind(all_pops,data)
+}
+
+all_pops$x_1000 <- all_pops$x/1000
+all_pops$filename <- basename(all_pops$filename)
+
+# Labels
+#all_pops_labels <- all_pops %>% group_by(filename) %>% slice_max(x_1000, n = 10) %>% slice(2)
+
+PD_SMCPP_plot2 <- ggplot() +
+  geom_path(data=all_pops, aes(x = x_1000, y = log(y), color = filename, group = filename)) +
+  theme_bw() +
+  #geom_text_repel(data=all_pops_labels, aes(x = x_1000, y = y, color = filename, group = filename, label = filename), size = 2, force = 100, xlim = c(605, NA), nudge_x = 150, segment.alpha = .5, segment.linetype = "dotted", box.padding = .1) +
+  #coord_cartesian(xlim = c(0, 720), clip='off') +
+  theme(legend.position = "none") +
+  xlim(c(10,600)) + ylim(c(9,15))+
+  labs (x="Generations (thousands)", y="Logged (natural) effective population size", color = "Population")
+
+######
+
+PD_SMCPP_plotall <- PD_SMCPP_plot1 + PD_SMCPP_plot2  + plot_layout(axis_titles = "collect") 
+
+#ggsave(PD_SMCPP_plotall, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/SMCPP.png", width = 3000, height= 1200, units = 'px', limitsize = F)
+```
+
+## Phylogenetic analyses
+```{r phylogenetic plot}
+library(BiocManager)
+library(ggtree)
+library(treeio)
+library(ape)
+library(tidyverse)
+
+### Phylogenetic trees for trees of >= 20 'Infor' value
+tree <- read.tree( file='~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/scfl_HighInfor20_astral.cf.tree')
+
+# Adding gcf label
+BSS_labelledtree <- read.tree ('~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/gcf_HighInfor20_astral.cf.tree')
+
+boot_labels <- as.numeric(stringr::str_split_i(BSS_labelledtree$node.label, "/", 1))
+scfl_labels <- stringr::str_split_i(tree$node.label, "/", 2)
+gcf_labels <- as.numeric(stringr::str_split_i(BSS_labelledtree$node.label, "/", 2))
+
+cf_label <- paste0(round(boot_labels, digits=2), "/", scfl_labels, "/", round(gcf_labels, digits=2))
+cf_label <- gsub("NA/NA/NA", "Root", cf_label); cf_label <- gsub("/0", "", cf_label)
+
+tree <- root(tree, outgroup = "NSW1158831_S127", resolve.root = TRUE)
+
+# Tip labels
+merged_out_list$species[merged_out_list$source == "outgroups" & merged_out_list$species == "Melaleuca quinquenervia"] <- "Melaleuca quinquenervia_QLD"
+merged_out_list$species[merged_out_list$source == "NSW_randsel" & merged_out_list$species == "Melaleuca quinquenervia"] <- "Melaleuca quinquenervia_NSW"
+
+labels <- merged_out_list[,1:2] #Labels of tips from Calculating metrics.R 
+
+labels$order <- match (labels[,1], tree$tip.label)
+sorted_labels <- labels[order(labels$order), ]
+
+# Relabelling by splitting NSW in susceptible and non
+labels <- read.delim("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/SETS.txt", header=FALSE) 
+labels <- rbind(labels, as.data.frame(list(V1=c("NSW1158796_S117","NSW1158809_S106","NSW1158802_S97","NSW1158804_S107"),V2= c("Melaleuca quinquenervia_reference", "Melaleuca quinquenervia_QLD_S", "Melaleuca quinquenervia_QLD_S", "Melaleuca quinquenervia_QLD_S"))))
+colnames(labels) <- c("sample_lib_NSW", "species")
+labels$species <- gsub("Outgroup", "Melaleuca nodosa", labels$species)
+filtered_labels <- labels %>% filter(sample_lib_NSW %in% tree$tip.label)
+
+labels$order <- match (labels[,1], tree$tip.label)
+sorted_all_labs <- labels[order(labels$order), ]
+sorted_all_labs$label_padded = ggtree::label_pad(sorted_all_labs$species, justify="centre", pad="")
+
+tree$edge.length = 0.017
+tree$node.label <- cf_label
+
+tree_plot <- ggtree(tree) %<+%
+  #geom_text(aes(x=branch, label=cf_label), nudge_x=-0.01, nudge_y=0.40, size=3) %<+%
+  sorted_all_labs + 
+  geom_tiplab(aes(label=label_padded, colour = label_padded), hjust = -0.05, na.value = "grey50", size = 4, linetype="dotted", align=TRUE) +
+  labs(title = "BUSCO ID consensus tree", colour =  "Group") +
+  scale_x_continuous(expand=expansion(add=c(0.01, 0.115))) +
+  theme(plot.margin = margin(t = 0, r = 50, b = 0, l = 10, unit = "pt")) +
+  theme(plot.title = element_text(hjust = 0.975, vjust=0.5)) +
+  geom_nodelab(geom = "label", nudge_x=0, nudge_y=0, size=3)
+
+tree_plot 
+
+
+
+
+################ Gene tree of MR region
+
+tree_MR <- read.tree(file='~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/mq.call.MR_region.seq.ex.tree.contree')
+tree_MR <- root(tree_MR, outgroup = "NSW1158831_S127", resolve.root = TRUE)
+
+# Length for iqtree
+tree_MR$edge.length = 0.05
+
+# Labels
+filtered_labels$order <- match (filtered_labels[,1], tree_MR$tip.label)
+sorted_labels <- filtered_labels[order(filtered_labels$order), ]
+sorted_labels$label_padded = label_pad(sorted_labels$species, justify="centre", pad="")
+
+tree_plot_MR <- ggtree(tree_MR) +
+  geom_nodelab(geom="label", size=3) 
+
+
+tree_plot_MR <- tree_plot_MR %<+%
+  sorted_labels + 
+  geom_tiplab(aes(label=label_padded, colour = label_padded), hjust = 1.05, na.value = "grey50", size = 4.05, linetype="dotted", align=TRUE) + 
+  labs(title = "Region of significance \n(Chromosome 8: 19,157,911 - 19,557,911)") +
+  scale_x_reverse(expand=expansion(add=c(0.3, 0.05))) 
+theme(legend.position = "none") 
+
+tree_plot_MR
+
+
+############### Patchwork
+library(patchwork)
+
+tree_plot_both <- tree_plot +  tree_plot_MR & theme(legend.position = "none")
+
+ggsave(tree_plot_both, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/tree_plot_allindivs.jpg", width = 7000, height= 4000, units = 'px', limitsize = F)
+```
+
+## All plots
+```{r}
+PD_SMCPP_plotall <- PD_SMCPP_plotall & theme(plot.margin = unit(c(0, 0.1, 0, 0), "inches")) 
+
+PD_plot_top <- (PD_phylo_plot + PD_LEA_plot + PD_LD_plot) + 
+  plot_layout(heights = c(1,4,1), nrow=1, width=c(3,3,3))
+
+
+
+plot_all <- PD_plot_top / PD_SMCPP_plotall + 
+  plot_layout(heights=c(1,1)) &theme(plot.margin = unit(c(0.1, 0.1, 0.1, 0.1), "inches")) 
+
+
+ggsave(plot_all, file = "~/RBGSyd_Technical Officer/MQuin/Paper_plots/Population_demographics.png", width = 5000, height= 5000, units = 'px', limitsize = F)
+```
+
+## SNPeff
+## g97 interrogation
+```{r}
+# ## G97
+g97_fa_phase1 <- read.fasta(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Chromosome8_investigation/mq.phase1_edit_reverse_g97.t1.fa")
+g97_fa_phase2 <- read.fasta(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Chromosome8_investigation/mq.phase2_edit_reverse_g97.t1.fa")
+
+
+# Remove reference as not in seedlings_all_lib
+g97_fa <- g97_fa[-c(1)]
+
+g97_aa <- lapply(g97_fa, function(x) { seqinr::translate(x) })
+
+# Remove everything past the stop codon at AA pos 1368
+g97_aa <- lapply(g97_aa, function(x) x[1:1368])
+
+g97_aa_al <- as.alignment(nb = length(g97_aa), seq = g97_aa, nam = names(g97_aa))
+
+g97_aa_dist <- dist.alignment(g97_aa_al)
+g97_aa_dist_mat <- as.matrix(g97_aa_dist)
+
+## Adding COI colours
+seedling_meta_sub <- seedlings_all_library %>%
+  select(LIBRARY, COI) %>%
+  filter(LIBRARY %in% names(g97_aa))
+
+
+## Plot
+
+hist(g97_aa_dist)
+hm <- heatmap.2(
+  as.matrix(g97_aa_dist_mat),  # Distance matrix
+  margins = c(11, 11),  # Adjust margins
+  trace = "none",  # No trace lines
+  col = colorRampPalette(rev(brewer.pal(9, "RdYlBu")))(100),  # Heatmap colors
+  key = F,  # Show color key
+  density.info = "none",
+)
+
+hm_roword <- colnames(hm$carpet)
+
+seedling_meta_sub_ord <- seedling_meta_sub[match(hm_roword, seedling_meta_sub$LIBRARY),]
+coi_vector <- seedling_meta_sub_ord$COI
+coi_palette <- colorRampPalette(brewer.pal(9, "YlOrRd"))  # Adjust palette as desired
+coi_colors <- coi_palette(100)  # 100 gradient steps
+coi_color_map <- coi_colors[cut(coi_vector, breaks = 100, labels = FALSE)]  # Map COI to colors
+
+heatmap.2(
+  as.matrix(g97_aa_dist_mat),  # Distance matrix
+  margins = c(11, 11),  # Adjust margins
+  trace = "none",  # No trace lines
+  col = colorRampPalette(rev(brewer.pal(9, "RdYlBu")))(100),  # Heatmap colors
+  key = F,  # Show color key
+  density.info = "none",  # No density plot
+  ColSideColors = rev(coi_color_map),
+  RowSideColors = rev(coi_color_map)
+)
+
+###########################
+g97_fa <- read.fasta(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Chromosome8_investigation/mq.phase2_edit_reverse_g97.t1.fa")
+# Remove reference as not in seedlings_all_lib
+g97_fa <- g97_fa[-c(1)]
+
+g97_aa <- lapply(g97_fa, function(x) { seqinr::translate(x) })
+
+# Remove everything past the stop codon at AA pos 1368
+g97_aa <- lapply(g97_aa, function(x) x[1:1368])
+
+
+# How many unique variations are there?
+unique_g97_aa_bin <- (duplicated(g97_aa))
+
+# Unique indivs
+unique_g97_aa_indvs <- names(g97_aa)[!unique_g97_aa_bin]
+
+# Number of unique indivs
+length(unique_g97_aa_indvs)
+
+# Recreate heatmap
+unique_g97_aa <- g97_aa[!is.na(match(names(g97_aa), unique_g97_aa_indvs))] # indivs selected - 223
+unique_g97_aa_al <- as.alignment(nb = length(unique_g97_aa), seq = unique_g97_aa, nam = names(unique_g97_aa))
+
+unique_g97_aa_dist <- dist.alignment(unique_g97_aa_al)
+unique_g97_aa_dist_mat <- as.matrix(unique_g97_aa_dist)
+
+hist(unique_g97_aa_dist)
+hm <- heatmap.2(
+  as.matrix(unique_g97_aa_dist_mat),  # Distance matrix
+  margins = c(11, 11),  # Adjust margins
+  trace = "none",  # No trace lines
+  col = colorRampPalette(rev(brewer.pal(9, "RdYlBu")))(100),  # Heatmap colors
+  key = F,  # Show color key
+  density.info = "none",
+)
+
+hm_roword <- colnames(hm$carpet)
+
+seedling_meta_sub_ord <- seedling_meta_sub[match(hm_roword, seedling_meta_sub$LIBRARY),]
+coi_vector <- seedling_meta_sub_ord$COI
+coi_palette <- colorRampPalette(brewer.pal(9, "YlOrRd"))  # Adjust palette as desired
+coi_colors <- coi_palette(100)  # 100 gradient steps
+coi_color_map <- coi_colors[cut(coi_vector, breaks = 100, labels = FALSE)]  # Map COI to colors
+
+heatmap.2(
+  as.matrix(unique_g97_aa_dist_mat),  # Distance matrix
+  margins = c(11, 11),  # Adjust margins
+  trace = "none",  # No trace lines
+  col = colorRampPalette(rev(brewer.pal(9, "RdYlBu")))(100),  # Heatmap colors
+  key = F,  # Show color key
+  density.info = "none",  # No density plot
+  ColSideColors = rev(coi_color_map),
+  RowSideColors = rev(coi_color_map)
+)
+```
+
+
+## gggenomes of g93-g98
+```{r}
+library(gggenomes); library(readxl)
+
+# Chromosome structure
+setwd("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots")
+chromosomes_hapAchr08 <- data.frame(seq_id='MqA_CHR08',  start=19330000, end=19390000, length=(19390000-19330000)) #V2=,
+chromosomes_hapBchr08 <- data.frame(seq_id='MqB_CHR08',  start=19970000, end=20250000, length=(20250000-19970000)) #V2=19970000,
+chromosomes_struct <- rbind(chromosomes_hapAchr08, chromosomes_hapBchr08)
+
+# Annotation file
+g93g98_geneinfo <- read_xlsx (path="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Chromosome8_investigation/G93-G98/g93-g98_All_results.xlsx", sheet="data_file")
+colnames(g93g98_geneinfo) <- c("feat_id", "seq_id", "start", "end", "strand","Note")
+g93g98_geneinfo$type="CDS"
+g93g98_geneinfo <- g93g98_geneinfo[!(g93g98_geneinfo$Note == "Not transposable"),] # remove non transposable mquigs
+
+g93g98_featsinfo_B <- g93g98_geneinfo[g93g98_geneinfo$seq_id=="MqB_CHR08",]
+g93g98_featsinfo_A <- g93g98_geneinfo[g93g98_geneinfo$seq_id=="MqA_CHR08",]
+g93g98_featsinfo_A_genes <- g93g98_featsinfo_A[!grepl("MQUIG", g93g98_featsinfo_A$feat_id),]
+g93g98_featsinfo_A_MQUIG <- g93g98_featsinfo_A[grep("MQUIG", g93g98_featsinfo_A$feat_id),]
+
+g93g98_linkinfo <- read_xlsx (path="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Chromosome8_investigation/g93-g98_All_results.xlsx", sheet="link_file")
+
+#Top horizontal line with ticks from 19330000 to 19390000, every 10000
+top_line_x <- seq(0, 60000, length.out = 4)  # Line from 0 to 60000
+top_ticks_x <- seq(0, 60000, length.out = 4)  # Ticks at every 10000 (mapped)
+top_labels_numeric <- seq(19330000, 19390000, by = (19390000-19330000)/3)
+top_labels <- paste0(round(top_labels_numeric / 1e6, 2), "M")
+
+# Normalize bottom tick positions to [0, 1]
+top_ticks_x_norm <- top_ticks_x / max(top_ticks_x)
+tick_range <- c(0.1875, 0.3275)
+top_ticks_x_offset <- top_ticks_x_norm * diff(tick_range) + tick_range[1]
+
+# Add as grobs
+top_axis <- grobTree(
+  linesGrob(x = unit(tick_range, "npc"), y = unit(0.8, "npc"), gp = gpar(col = "grey50", lty = "dotted", lwd = 0.5)),  # top line
+  segmentsGrob(
+    x0 = unit(top_ticks_x_offset, "npc"),
+    x1 = unit(top_ticks_x_offset, "npc"),
+    y0 = unit(.8, "npc"),
+    y1 = unit(0.81, "npc"),
+    gp = gpar(col = "grey50")
+  ),
+  textGrob(
+    label = top_labels,
+    x = unit(top_ticks_x_offset, "npc"),
+    y = unit(0.82, "npc"),
+    just = "bottom",
+    gp = gpar(cex = 0.4, col = "grey50")
+  )
+)
+
+
+# Bottom horizontal line with ticks from 19970000 to 20250000, every 40000
+bottom_line_x <- seq(0, 280000, length.out = 6)
+bottom_ticks_x <- seq(0, 280000, length.out = 6)
+bottom_labels_numeric <- seq(19970000, 20250000, by = (20250000-19970000)/5)
+bottom_labels <- paste0(round(bottom_labels_numeric / 1e6, 2), "M")
+
+bottom_ticks_x_norm <- bottom_ticks_x / max(bottom_ticks_x)
+tick_range <- c(0.1875, 0.8475)
+bottom_ticks_x_offset <- bottom_ticks_x_norm * diff(tick_range) + tick_range[1]
+
+bottom_axis <- grobTree(
+  linesGrob(x = unit(tick_range, "npc"), y = unit(0.23, "npc"), gp = gpar(col = "grey50", lty = "dotted", lwd = 0.5)),  # shifted bottom line
+  segmentsGrob(
+    x0 = unit(bottom_ticks_x_offset, "npc"),
+    x1 = unit(bottom_ticks_x_offset, "npc"),
+    y0 = unit(0.22, "npc"),
+    y1 = unit(0.23, "npc"),
+    gp = gpar(col = "grey50")
+  ),
+  textGrob(
+    label = bottom_labels,
+    x = unit(bottom_ticks_x_offset, "npc"),
+    y = unit(0.21, "npc"),
+    just = "top",
+    gp = gpar(cex = 0.4, col = "grey50")
+  )
+)
+
+
+g93g98_structplot <- gggenomes(genes=g93g98_geneinfo, seqs=chromosomes_struct, links = g93g98_linkinfo, feats=list(g93g98_featsinfo_A, g93g98_featsinfo_B)) +   
+  geom_seq(colour="grey", size=1) +
+  geom_bin_label(size=2) + # chromosome labels
+  geom_link(aes(fill=FeatureOne), size=0, offset = 0) +
+  ggrepel::geom_text_repel(data=g93g98_featsinfo_A, aes(x=end-19331000, y= 2, label=feat_id),nudge_y = 0.3, min.segment.length = 0, size=1.5, max.overlaps = Inf,  segment.color = 'grey80') +
+  ggrepel::geom_text_repel(data=g93g98_featsinfo_B, aes(x=end-19972000, y= 1, label=feat_id),nudge_y = -0.15, min.segment.length = 0, size=1.5, max.overlaps = Inf,  segment.color = 'grey80') +
+  geom_gene(aes(fill = Note), size=5, stroke=0.1) + #position = position_jitter (height=0.05, width=0) +
+  theme(legend.title=element_blank(),   
+        axis.title.x = element_blank(),
+        axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank(),
+        axis.line.x = element_blank()) +
+  scale_fill_brewer(palette="Dark2")
+
+g93g98_structplot_axes <- ggdraw (g93g98_structplot) +
+  cowplot::draw_grob(top_axis) +
+  cowplot::draw_grob(bottom_axis) +
+  cowplot::draw_text("Position (bp)", y=0.16, x=diff(tick_range)-0.1, size=6, col="grey50")
+#cowplot::draw_text("Position (bp)", y=0.25, x=diff(tick_range), size=1, col="grey50")
+g93g98_structplot_axes
+
+ggsave(plot=g93g98_structplot_axes, filename="g93g98_structplot_rmNTrMQUIG_axeslab.png", width=9, height=3)
+```
+
+
+#  GWAS Manhattan plot parents
+## BV_COI
+```{r}
+## awk '{print $1 "\t" $3 "\t" $12}'  
+library(qqman)
+library(tidyverse)
+
+maf005_BVCOI_filetop <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/p_wald_fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf_top0.01_maf005.csv"
+maf005_BVCOI_file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/fitted.res.animal.gwas7.parentiter1.res.thin.txt"
+maf01_BVCOI_filetop <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/p_wald_fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf_top0.01_maf01.csv"
+maf01_BVCOI_file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/fitted.res.animal.gwas7.parentiter1.maf01.res.thin.txt"
+
+# Reading in files
+file <- maf01_BVCOI_file
+file_top <- maf01_BVCOI_filetop
+qqdata_BVCOI_1 <- read.table(file, sep="\t",header=TRUE)
+qqdata_BVCOI_2 <- read.csv(file_top); qqdata_BVCOI_2 <- qqdata_BVCOI_2[,-1]
+qqdata_BVCOI <- unique(rbind(qqdata_BVCOI_1, qqdata_BVCOI_2))
+
+# Wrangling data
+gwasResults_BVCOI <- data.frame(SNP=paste0("snp",rownames(qqdata_BVCOI)), CHR=as.integer(substr(qqdata_BVCOI$chr, 8,9)), BP=qqdata_BVCOI$ps, P=qqdata_BVCOI$p_wald)
+
+gwasResults_sort_BVCOI <- gwasResults_BVCOI %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+
+gwasResults_sort_BVCOI$index <- seq(1, nrow(gwasResults_sort_BVCOI), 1)
+
+# Plotting variables
+xlabel = "Chromosome"
+labs_POS <- gwasResults_sort_BVCOI %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+
+plot_manhattan_BVCOI <- ggplot () +
+  geom_point (data = gwasResults_sort_BVCOI, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-7), linetype='dashed', size = .75)+
+  labs(x = 'Chromosome') 
+#plot_manhattan_BVCOI
+ggsave(plot_manhattan_BVCOI, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Parent_BVCOI_Manhattan_maf01.jpg", width = 2500, height = 1750, limitsize = FALSE, units = "px")
+
+```
+
+## BV_RGR
+```{r}
+library(qqman)
+library(tidyverse)
+
+maf005_BVRGR_filetop <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/fitted.res.animal_RGR._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part2_Mq_filt_cat.beagle_bcf_top0.01_maf005.csv"
+maf005_BVRGR_file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/fitted.res.animal_RGR.gwas7.parentiter1.res.thin.txt"
+maf01_BVRGR_filetop <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/fitted.res.animal_RGR._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part2_Mq_filt_cat.beagle_bcf_top0.01_maf01.csv"
+maf01_BVRGR_file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/fitted.res.animal_RGR.gwas7.parentiter1.maf01.res.thin.txt"
+
+# Reading in files
+file <- maf01_BVRGR_file
+file_top <- maf01_BVRGR_filetop
+qqdata_BVRGR_1 <- read.table(file, sep="\t",header=TRUE)
+qqdata_BVRGR_2 <- read.csv(file_top); qqdata_BVRGR_2 <- qqdata_BVRGR_2[,-1]
+qqdata_BVRGR <- unique(rbind(qqdata_BVRGR_1, qqdata_BVRGR_2))
+
+# Wrangling data
+gwasResults_BVRGR <- data.frame(SNP=paste0("snp",rownames(qqdata_BVRGR)), CHR=as.integer(substr(qqdata_BVRGR$chr, 8,9)), BP=qqdata_BVRGR$ps, P=qqdata_BVRGR$p_wald)
+
+gwasResults_sort_BVRGR <- gwasResults_BVRGR %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+
+gwasResults_sort_BVRGR$index <- seq(1, nrow(gwasResults_sort_BVRGR), 1)
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_sort_BVRGR %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+
+plot_manhattan_BVRGR <- ggplot () +
+  geom_point (data = gwasResults_sort_BVRGR, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.75) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-7), linetype='dashed', size = .75)+
+  labs(x = 'Chromosome') 
+
+#ggsave(plot_manhattan_BVRGR, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Parent_BVRGR_Manhattan.jpg", width = 2500, height = 1750, limitsize = FALSE, units = "px")
+
+```
+
+## GWAS Manhattan field scores & sqrt Mean coi
+```{r}
+library(qqman)
+library(tidyverse)
+
+# sqrt_meanCOI
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/sqrt_mean_COI.gwas7.parentiter1.res.thin.txt"
+file_top <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/p_wald_sqrt_mean_COI_mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part3_Mq_filt_cat.beagle_bcf_top0.01.csv"
+qqdata_sqmc_1 <- read.table(file, sep="\t",header=TRUE)
+qqdata_sqmc_2 <- read.csv(file_top); qqdata_sqmc_2 <- qqdata_sqmc_2[,-1]
+qqdata_sqmc <- unique(rbind(qqdata_sqmc_1, qqdata_sqmc_2))
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata_sqmc)), CHR=as.integer(substr(qqdata_sqmc$chr, 8,9)), BP=qqdata_sqmc$ps, P=qqdata_sqmc$p_wald)
+
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+p2 <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.75) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-7), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+
+ggsave(p2, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_parensqrtmeanCOI.jpg", width = 2500, height = 1750, limitsize = FALSE, units = "px")
+```
+
+
+#  GWAS Manhattan plot seedlings
+
+```{r}
+library(qqman)
+library(tidyverse)
+
+# Reading in files
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/iter_4-gwas_2-COI.txt"
+qqdata <- read.table(file, sep="\t",header=TRUE)
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+p1 <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-7), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+#p1
+ggsave(p1, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_newp.jpg", width = 2500, height = 1750, limitsize = FALSE, units = "px")
+
+```
+## Manhattan plots SI of untransformed COI & binary COI transformation
+
+```{r}
+library(qqman)
+library(tidyverse)
+
+# Untransformed COI
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/iter_2-gwas_1_untransCOI.txt"
+
+# Reading in files
+qqdata <- read.table(file, sep="\t",header=TRUE)
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+p1 <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-07), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+phenotype <- read.csv("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/GWAS_phenotype_height_COI.csv")
+
+p2 <- ggplot () +
+  geom_histogram (data = phenotype, aes(x=COI)) +
+  labs(x= "Untransformed COI") +
+  theme_bw()
+
+plot_manhattan_untrans <- p1 + p2
+  
+
+ggsave(p1, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_untransformed COI.jpg", width = 2500, height = 1750, limitsize = FALSE, units = "px")
+ggsave(p2, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_untransformed COI_phenodist.jpg", width = 1750, height = 1750, limitsize = FALSE, units = "px")
+  
+# Binary scores
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/iter_4-gwas_3_Binaryat2.txt"
+
+# Reading in files
+qqdata <- read.table(file, sep="\t",header=TRUE)
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+p3 <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-07), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+phenotype <- read.csv("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/iter_4-gwas_3_Binaryat2_pheno.csv")
+
+p4 <- ggplot() +
+  geom_histogram(data = phenotype, aes(x = as.character(Method_at_2)), stat = "count", width = 0.3) +
+  labs(x = "Nominal binary classification", y = "Count") +
+  theme_bw()
+    
+ggsave(p3, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_Binaryat2.jpg", width = 2500, height = 1750, limitsize = FALSE, units = "px")
+ggsave(p4, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_Binaryat2_phenodist.jpg", width = 1750, height = 1750, limitsize = FALSE, units = "px")
+
+```
+
+## Manhattan plot of Immune Types
+```{r}
+library(qqman)
+library(tidyverse)
+
+##### Chlorosis
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/ImmuneType_GWAS/Chlorosis_man.txt"
+
+# Reading in files
+qqdata <- read.table(file, sep="\t",header=TRUE)
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+man_chlorosis <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-07), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+##### Necrosis
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/ImmuneType_GWAS/Necrosis_man.txt"
+
+# Reading in files
+qqdata <- read.table(file, sep="\t",header=TRUE)
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+man_necrosis <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-07), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+##### Flecking
+file <- "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/ImmuneType_GWAS/Flecking_man.txt"
+
+# Reading in files
+qqdata <- read.table(file, sep="\t",header=TRUE)
+
+# Wrangling data
+gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+gwasResults_thin <- gwasResults_sort[sample(nrow(gwasResults_sort), 10000, replace = FALSE), ]
+
+# Plotting variables
+xlabel = "Chromosome"
+#labs <- unique(gwasResults_sort$CHR)
+labs_POS <- gwasResults_thin %>% group_by (CHR) %>% summarise(index = median(index))
+
+ticks = as.character(unname(unlist(labs_POS[,1])))
+lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+
+man_flecking <- ggplot () +
+  geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.5) + 
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-07), linetype='dashed', linewidth = .75)+
+  labs(x = 'Chromosome') 
+
+###
+
+plot_manhattan_immunetypes <- man_necrosis + man_flecking + man_chlorosis + plot_layout(nrow=2)
+
+ggsave(man_necrosis, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_ImmuneTypes_necrosis.jpg", width = 4000, height = 1750, limitsize = FALSE, units = "px")
+ggsave(man_flecking, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_ImmuneTypes_flecking.jpg", width = 4000, height = 1750, limitsize = FALSE, units = "px")
+ggsave(man_chlorosis, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_ImmuneTypes_chlorosis.jpg", width = 4000, height = 1750, limitsize = FALSE, units = "px")
+```
+
+
+## Chromosome map of markers
+
+```{r}
+library(chromoMap)
+library(tidyverse)
+
+# Chromosomes length extracted on recer server using awk '/^>/ {if (seqlen) print seqlen; print $0; seqlen=0; next} {seqlen += length($0)} END {print seqlen}' "/data/genomics/data/genomes/Mquin/genomes/Mqui_v1_hapA.fasta" > MqA_Chromosomes.txt # Prints out chromosome and the number of base pair within
+
+# Chromosome structure
+setwd("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots")
+chromosomes <- read.table(file = "data/chromosomes.txt")
+chromosomes_sort <- chromosomes[order(chromosomes$V1), ]
+
+# Annotation file
+file <- "data/iter_4-gwas_2-COI.txt"
+marker_ann <- read.table(file, sep="\t",header=TRUE)
+
+marker_ann$ps_end <- marker_ann$ps + 1
+marker_ann_trans <- marker_ann %>% filter(p_wald < 0.0005) %>% select (rs, chr, ps, ps_end , p_wald)
+
+marker_ann_trans$p_wald <- formatC(marker_ann_trans$p_wald, format = "e", digits = 1)
+
+chromoMap(ch.file=list(chromosomes_sort), 
+          data.files=list(marker_ann_trans),
+          n_win.factor = 3,  
+          data_based_color_map = T, 
+          data_type = "numeric",
+          canvas_width = 1400, 
+          canvas_height = 1400, 
+          left_margin = 80, 
+          interactivity = F,
+          legend = c(T), 
+          lg_y = 750, 
+          plot.legend.labels = c("Wald p-val"), 
+          data_colors = list(c("red2","blue")), 
+          plots = "scatter", 
+          ch_gap = 0.1, 
+          ref_line = T,
+          plot_color = c("black")) # , region='MqA_CHR08':19350000:19400000
+
+# Manual Rstudio export with 1360x400
+```
+
+## Chromosome map of NLR genes
+```{r}
+
+library(chromoMap)
+library(tidyverse)
+
+# Chromosome structure
+chromosomes <- read.table(file = "data/chromosomes.txt")
+chromosomes_sort <- chromosomes[order(chromosomes$V1), ]
+
+# Annotation file
+file <- "data/nlr_hapA.gff3"
+#file <- "~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/nbarc_hapA.gff3"
+NLR <- read.table(file, sep="\t", header=FALSE) %>% select (V1, V4, V5)
+NLR_ann <- NLR
+
+NLR_ann <- NLR_ann[-c(grep("CTG", NLR_ann$V1)),]
+NLR_ann <- NLR_ann %>% mutate(chr = sub(".*CHR([0-9]+)\\..*", "\\1", V1))
+NLR_ann$chr <- paste0("MqA_CHR",NLR_ann$chr)
+NLR_ann <- NLR_ann[,c(1, 4, 2, 3)] # for nlr.gff
+#NLR_ann <- NLR_ann[,c(4, 1, 2, 3)] # for nbarc.gff
+
+# chromoMap(ch.file= list(chromosomes_sort), data.files=list(qqdata_ann),  n_win.factor = 3, canvas_width = 1300, canvas_height = 700, left_margin = 80, interactivity = F)
+# Manual Rstudio export with 1360x400
+
+
+```
+
+## Plotting both together
+
+```{r}
+marker_ann_filt <- marker_ann %>% filter(p_wald < 0.00005) %>% select (rs, chr, ps, ps_end , p_wald)
+marker_ann_merge <- marker_ann_filt %>% mutate(type = "Marker") %>% select(rs, chr, ps, ps_end, type)
+NLR_ann_merge <- NLR_ann %>% mutate(type = "NLR")
+colnames(NLR_ann_merge) <- names(marker_ann_merge)
+
+NLR_marker_overlap=NULL
+
+for (i in 1:nrow(marker_ann_merge)) {
+  i_ps_end = marker_ann_merge[i, "ps_end"]
+  i_chr = marker_ann_merge[i, "chr"]
+  print(paste(i, "out of", nrow(marker_ann_merge)))
+  
+  valid_match_found = FALSE
+  
+  for (j in 1:nrow(NLR_ann_merge)) {
+    if (valid_match_found == FALSE & i_chr == NLR_ann_merge[j, "chr"]) {
+      if(i_ps_end %in% seq(NLR_ann_merge[j, "ps"]-1000, NLR_ann_merge[j, "ps_end"]+1000, by = 1)) {
+      row = marker_ann_merge[i,]
+      NLR_marker_overlap = rbind(NLR_marker_overlap, row)
+      
+      valid_match_found = TRUE
+      
+      print(paste(i, "in marker_ann_merge is valid for", j, "in NLR_ann_merge"))
+      print(paste(i_ps_end, "is in", (NLR_ann_merge[j, "ps"] - 100), "to", (NLR_ann_merge[j, "ps_end"] +100), "is valid"))
+      }
+    }
+  }
+}
+
+NLR_marker_overlap$type = "Markers in close vicinity to NLR"
+marker_ann_merge_rem <- marker_ann_merge %>% filter(!(rs %in% NLR_marker_overlap$rs))
+
+## Top 20 GWAS Markers & Missense SNPs
+
+ann_merge <- rbind(NLR_marker_overlap[,-c(5)], marker_ann_merge_rem[,-c(5)], NLR_ann_merge[,-c(5)])
+ann_merge <- unique(ann_merge)
+
+# Create a named list of ps vectors and corresponding labels
+ps_sources <- list(
+  "Markers in close vicinity to NLR" = NLR_marker_overlap$ps,
+  "Missense variants in Top 500 SNPs (SNPeff)" = Missense$ps,
+  "Top 20 GWAS hits" = Top20GWAS$ps,
+  "Marker"= marker_ann_merge_rem$ps
+) # Purposefully left out NLR, appending at end using the remaining NA as they overlap and append incorrectly
+
+# Create a long data.frame from the ps_sources list
+ps_tags <- bind_rows(lapply(names(ps_sources), function(label) {
+  data.frame(ps = ps_sources[[label]], tag = label, stringsAsFactors = FALSE)
+}))
+
+# Aggregate the tags by ps 
+ps_tags_summary <- ps_tags %>%
+  group_by(ps) %>%
+  summarise(type = paste(tag, collapse = ", "), .groups = "drop")
+
+# Join with ann_merge to add the `type` column
+ann_merge <- ann_merge %>%
+  left_join(ps_tags_summary, by = "ps")
+ann_merge$type[ann_merge$type=="Top 20 GWAS hits, Marker"] <- "Top 20 GWAS hits"
+ann_merge$type[is.na(ann_merge$type)] <- "NLR" 
+
+# Order SNP appearance
+desired_order <- c(
+  "Top 20 GWAS hits",
+  "Markers in close vicinity to NLR, Top 20 GWAS hits",
+  "Markers in close vicinity to NLR, Missense variants in Top 500 SNPs (SNPeff)",
+  "Markers in close vicinity to NLR",
+  "Marker",
+  "NLR"
+)
+
+ann_merge_sorted <- ann_merge %>%
+  mutate(type = factor(type, levels = desired_order)) %>%
+  arrange(type)
+
+chromoMap(ch.file= list(chromosomes_sort), data.files=list(ann_merge), data_based_color_map = T, data_type = "categorical", data_colors = list(c("aquamarine4", "mediumorchid1", "lightpink", "darkolivegreen2", "skyblue","darkorange4")), n_win.factor = 3, canvas_width = 1300, canvas_height = 700, left_margin = 80, interactivity = F, legend = T, lg_x = 1000, lg_y = 250, discrete.domain=list(desired_order))
+# Manual Rstudio export with 1360x450
+
+# Zoom in on chr08
+chromoMap(ch.file=list(chromosomes_sort[chromosomes_sort$V1 == "MqA_CHR08",]), data.files=list(ann_merge_sorted), data_based_color_map = T, data_type = "categorical", data_colors = list(c("aquamarine4", "mediumorchid1", "lightpink", "darkolivegreen2", "skyblue","darkorange4")), n_win.factor = 3, canvas_width = 1500, canvas_height = 500, left_margin = 80, interactivity = T,  lg_x = 1000, lg_y = 250, region=c("MqA_CHR08:1:19300000:19400000"), legend=T, discrete.domain=list(desired_order))
+```
+
+## Violin plot for some key SNPs
+
+Note violin plot plotted with mean_se error bars
+
+Genotypes extracted with: /usr/bin/vcftools --gzvcf /home/karina/mqgwas/iter_2/data/filtvcf_sigsnps/MQ_sig-sites.vcf.gz --extract-FORMAT-info GT --out /home/karina/mqgwas/iter_2/data/qualvcf/evalmetric_Mq_GT_sigSNP.out
+
+```{r}
+
+seedling_GT_data <- read.table("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/evalmetric_Mq_GT_sigSNP.out.GT.FORMAT", header=TRUE) # Adjust sigSNPs to appropriate
+
+GT_transpose <- pivot_longer(seedling_GT_data, 
+                             cols = starts_with("S"), 
+                             names_to = "sample_lib_NSW", 
+                             values_to = "genotype")
+
+GT_transpose <- GT_transpose[, c("sample_lib_NSW", "POS", "genotype")]
+
+
+# Plotting genotype distribution of each site against COI
+GT_transpose_remmiss <- GT_transpose %>% 
+  filter(genotype!="./.") 
+
+# Top 4 SNPs with the highest P-vals
+qqdata_high <- qqdata %>% slice_min(n=15, order_by = p_wald)
+GT_transpose_remmiss_high <- GT_transpose_remmiss %>% filter(POS %in% qqdata_high$ps)
+
+colnames(GT_transpose_remmiss_high)[1] <- "LIBRARY"
+
+GT_transpose_COI <- left_join(GT_transpose_remmiss_high, mq_phenotype_height_COI)
+
+# removing ones without all 3 genotypes & less than 3 individual within genotype
+pos_gt_count <- unique(GT_transpose_COI[,c("POS", "genotype")])
+rm_pos <- pos_gt_count %>% group_by(POS) %>% summarise (n=n()) %>% filter(n<3)
+rm_pos_gt <- GT_transpose_COI %>% group_by(POS, genotype) %>% summarise (n=n()) %>% filter(n<3)
+GT_transpose_COI_rm <- GT_transpose_COI %>% filter(!(POS %in% rm_pos$POS | POS %in% rm_pos_gt$POS) )
+
+# plot
+p3 <- ggplot(GT_transpose_COI_rm, aes(x=genotype, y=COI^0.25)) +
+  geom_violin() +
+  #stat_summary(fun.data=mean_sdl, geom = "errorbar", color="black", width=0.2) +
+  stat_summary(fun = "mean", geom = "point", color = "black", size = 0.6) +
+  facet_wrap(~POS) + 
+  theme_bw() +
+  labs (x = "Genotype", y = expression("Coefficient of Infection"^0.25)) 
+p3
+#ggsave(p3, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Genotype_COI.jpg", width = 3000, height = 1800, limitsize = FALSE, units = "px")
+
+```
+
+## Manhattan plot for all iterations_SI
+
+```{r}
+library(qqman)
+library(tidyverse)
+
+basefiledir <- "C:/Users/swirl/OneDrive/Documents/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Historic_seedling_GWAS_toppval"
+alliterfiles <- list.files(basefiledir, pattern = "*.csv")
+
+
+for (file in alliterfiles[]){
+  
+  cat(" Running iteration file: ", file, "\n")
+  
+  # Reading in files
+  filepath=paste(basefiledir, file, sep="/")
+  qqdata <- read.csv(filepath)
+
+  # Wrangling data
+  if(grepl("_p0.01", file)){ # For LMM runs
+    gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, P=qqdata$p_wald)
+    gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+    gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+
+    # Plotting variables
+    xlabel = "Chromosome"
+    
+    if(length(unique(gwasResults_sort$CHR))==1){ # Plot for MQ runs
+      p <- ggplot () +
+        geom_point (data = gwasResults_sort, aes(x=BP, y=-log10(P), colour = group), size = 0.4) + 
+        theme_bw () + theme(axis.text.x = element_text(size=10), legend.position = "none") +
+        labs(x = 'Chromosome 8 Position', title=file) 
+    } else {
+      labs_POS <- gwasResults_sort %>% group_by (CHR) %>% summarise(index = median(index))
+      
+      ticks = as.character(unname(unlist(labs_POS[,1])))
+      lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+      
+      p <- ggplot () +
+        geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=-log10(P), colour = group), size = 0.4) + 
+        scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+        theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+        labs(x = 'Chromosome', title=file) 
+    }
+    
+    
+
+  } else { # For BSLMM runs
+     gwasResults <- data.frame(SNP=paste0("snp",rownames(qqdata)), CHR=as.integer(substr(qqdata$chr, 8,9)), BP=qqdata$ps, gamma=qqdata$gamma)
+    gwasResults_sort <- gwasResults %>% arrange(CHR, BP) %>% mutate(group = ifelse(CHR %% 2 == 0, "even", "odd"))
+    gwasResults_sort$index <- seq(1, nrow(gwasResults_sort), 1)
+
+    # Plotting variables
+    xlabel = "Chromosome"
+    #labs <- unique(gwasResults_sort$CHR)
+    labs_POS <- gwasResults_sort %>% group_by (CHR) %>% summarise(index = median(index))
+    
+    ticks = as.character(unname(unlist(labs_POS[,1])))
+    lab_POS = as.numeric(unname(unlist(floor(labs_POS[,2]))))
+    
+    p <- ggplot () +
+     geom_point (data = gwasResults_sort, aes(x=as.integer(index), y=log10(gamma), colour = group), size = 0.4) + 
+     scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+     theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+     labs(x = 'Chromosome', title=file) 
+
+  }
+
+ggsave(p, filename=paste0(basefiledir,"/Manhattan_plot/",tools::file_path_sans_ext(file),"_plot.jpg"), width=6, height=5)
+  
+
+}
+```
+
+
+# Gene plot of a sigSNP
+
+```{r}
+# First filtering out candidate SNPs for the plot to use as examples
+## Top 0.0001 SNPs from iter 4 gwas 2
+iter_4_gwas_2_topSNPs <- read.csv (file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/p_wald_COI_mod_sub_GWAS_phenotype_height_COItransformedfoursqrt.part1_Mq_filt_cat.beagle_top0.0001.csv", header=TRUE)
+
+iter_4_gwas_2_topSNPs$ps_end <- iter_4_gwas_2_topSNPs$ps + 1
+iter_4_gwas_2_topSNPs_merge <- iter_4_gwas_2_topSNPs %>% mutate(type = "Marker") %>% select(rs, chr, ps, ps_end, type)
+
+colnames(iter_4_gwas_2_topSNPs_merge) <- names(marker_ann_merge)
+colnames(NLR_ann_merge) <- names(marker_ann_merge)
+
+NLR_ann_merge <- NLR_ann %>% mutate(type = "NLR") %>% unique() %>% filter(chr=="MqA_CHR08")
+NLR_ann_merge <- NLR_ann_merge %>% filter(ps >= min(iter_4_gwas_2_topSNPs_merge$ps)) %>% filter(ps <= max(iter_4_gwas_2_topSNPs_merge$ps))
+
+# Conducting a similar method as above to check whether the sigSNPs are +/- 100BP of a NLR region
+NLR_marker_overlap=NULL
+for (i in 1:nrow(iter_4_gwas_2_topSNPs_merge)) {
+  i_ps_end = iter_4_gwas_2_topSNPs_merge[i, "ps_end"]
+  i_chr = iter_4_gwas_2_topSNPs_merge[i, "chr"]
+  print(paste(i, "out of", nrow(iter_4_gwas_2_topSNPs_merge)))
+  
+  valid_match_found = FALSE
+  
+  for (j in 1:nrow(NLR_ann_merge)) {
+    if (valid_match_found == FALSE & i_chr == NLR_ann_merge[j, "chr"]) {
+      if(i_ps_end %in% seq(NLR_ann_merge[j, "ps"]-100, NLR_ann_merge[j, "ps_end"]+100, by = 1)) {
+      row = iter_4_gwas_2_topSNPs_merge[i,]
+      NLR_marker_overlap = rbind(NLR_marker_overlap, row)
+      
+      valid_match_found = TRUE
+      
+      print(paste(i, "in iter_4_gwas_2_topSNPs_merge is valid for", j, "in NLR_ann_merge"))
+      print(paste(i_ps_end, "is in", (NLR_ann_merge[j, "ps"] - 100), "to", (NLR_ann_merge[j, "ps_end"] +100), "is valid"))
+      }
+    }
+  }
+}
+
+# Finding number of times the SNP has blasted
+jgb_blast <- read.table(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/blast_POS.txt", header = T)
+colnames(jgb_blast)[1] <- "ps"
+jgb_blast$ps <- as.integer(jgb_blast$ps)
+
+iter_4_gwas_2_topSNPs_merge_blast_NLR <- left_join(NLR_marker_overlap, jgb_blast, by ='ps') 
+iter_4_gwas_2_topSNPs_merge_blast_NLR <- iter_4_gwas_2_topSNPs_merge_blast_NLR %>% filter(!is.na(blst_amount.B) & blst_amount.B>1)
+
+# Reattaching p-value to help deciding which to use
+
+iter_4_gwas_2_topSNPs_merge_blast_NLR <- left_join(iter_4_gwas_2_topSNPs_merge_blast_NLR, iter_4_gwas_2_topSNPs[,c(3,5)])
+print(iter_4_gwas_2_topSNPs_merge_blast_NLR)
+
+```
+
+## Plotting the blast and NLR
+```{r}
+#devtools::install_github("thackl/gggenomes")
+library(gggenomes)
+
+sigSNP_POS <- 19336685
+
+BLAST_hits_A <- read.table (file = "~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/MqA_CHR08_19336685.A.blast")
+BLAST_hits_B <- read.table (file = "~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/MqA_CHR08_19336685.B.blast")
+
+# Plotting NLRs 
+## Filtering to relevant sites
+NLR_ann_A <- read.table("~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/nlr_hapA.gff3", sep="\t", header=FALSE) %>% select (V1, V4, V5, V7)
+
+NLR_ann_A <- NLR_ann_A[-c(grep("CTG", NLR_ann_A$V1)),]
+NLR_ann_A <- NLR_ann_A %>% mutate(chr = sub(".*CHR([0-9]+)\\..*", "\\1", V1))
+NLR_ann_A$chr <- paste0("MqA_CHR",NLR_ann_A$chr)
+NLR_ann_A <- NLR_ann_A[,c(1, 4, 2, 3, 5)] 
+NLR_ann_filt_A <- NLR_ann_A %>% filter(chr == "MqA_CHR08", V4 >= min(BLAST_hits_A$V9), V5 <= max(BLAST_hits_A$V10)) %>% 
+  select (V4, V5, V7) %>% 
+  mutate(seq_id = "a")
+colnames(NLR_ann_filt_A) <- c("start", "end", "strand", "seq_id")
+NLR_ann_filt_A <- NLR_ann_filt_A[,c( "seq_id", "start", "end", "strand")]
+
+NLR_ann_B <- read.table("~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/nlr_hapB.gff3", sep="\t", header=FALSE) 
+NLR_ann_B <- NLR_ann_B[-c(grep("CTG", NLR_ann_B$V1)),]
+NLR_ann_B <- NLR_ann_B %>% mutate(chr = sub(".*CHR([0-9]+)\\..*", "\\1", V1))
+NLR_ann_B$chr <- paste0("MqB_CHR",NLR_ann_B$chr)
+NLR_ann_B <- NLR_ann_B %>% mutate(seq_id = "b") %>%  filter(chr == "MqB_CHR08", V4 >= min(BLAST_hits_B$V9), V5 <= max(BLAST_hits_B$V10))
+NLR_ann_B <- NLR_ann_B[,c(11, 4, 5, 7)] 
+colnames(NLR_ann_B) <- c("seq_id", "start", "end", "strand")
+ 
+NLR_ann_filt <- rbind(NLR_ann_filt_A, NLR_ann_B) %>% mutate(type = "NLR")
+
+# Plotting nbarc
+Nbarc_ann_A <- read.table("~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/nbarc_hapA.gff3", sep="\t", header=FALSE) 
+Nbarc_ann_A <- Nbarc_ann_A %>%
+   mutate(seq_id = "a") %>%  filter(V1 == "MqA_CHR08", V4 >= sigSNP_POS-dist, V5 <= sigSNP_POS+dist) 
+Nbarc_ann_A <- Nbarc_ann_A[,c(10, 4, 5, 7)]
+colnames(Nbarc_ann_A) <- c("seq_id", "start", "end", "strand")
+
+Nbarc_ann_B <- read.table("~/RBGSyd_Technical Officer/MQuin/Paper_plots/data/nbarc_hapB.gff3", sep="\t", header=FALSE) 
+Nbarc_ann_B <- Nbarc_ann_B %>%
+   mutate(seq_id = "b") %>%  filter(V1 == "MqB_CHR08", V4 >= min(BLAST_hits_B$V9), V5 <= max(BLAST_hits_B$V10))
+Nbarc_ann_B <- Nbarc_ann_B[,c(10, 4, 5, 7)]
+colnames(Nbarc_ann_B) <- c("seq_id", "start", "end", "strand")
+
+Nbarc_ann_filt <- rbind(Nbarc_ann_A, Nbarc_ann_B) %>% mutate(type = "NBARC")
+
+# Drawing chromosomes
+s0 <- tibble(
+  seq_id = c("a", "b"),
+  length = c((max(BLAST_hits_A$V10) - min(BLAST_hits_A$V9)), (max(BLAST_hits_B$V10) - min(BLAST_hits_B$V9))), # Fix subsetting by seq_id
+  start = c(min(BLAST_hits_A$V9), min(BLAST_hits_B$V9)),
+  end = c(max(BLAST_hits_A$V10), max(BLAST_hits_B$V10))
+)
+
+# Drawing blasts
+blasts_A <- BLAST_hits_A %>% select (V9, V10) %>% mutate (seq_id="a")
+blasts_A <- blasts_A[,c(3,1,2)]
+colnames(blasts_A) <- c("seq_id", "start", "end")
+
+blasts_B <- BLAST_hits_B %>% select (V9, V10) %>% mutate (seq_id="b")
+blasts_B <- blasts_B[,c(3,1,2)]
+colnames(blasts_B) <- c("seq_id", "start", "end")
+
+blasts <- rbind(blasts_A, blasts_B)
+
+# Drawing links
+l0 <- tibble(
+  seq_id = c("a", "a", "a", "a", "a", "a", "a", "a" ),
+  start = c(19336435, 19336435, 19336435, 19336435, 19513958, 19513958, 19513958, 19513958),
+  end = c(19336935, 19336935, 19336935, 19336935, 19514450, 19514450, 19514450, 19514450),
+  seq_id2 = c("b", "b", "b", "b", "b", "b", "b", "b"),
+  start2 = c(20237685, 20118135, 20137754, 20081792, 20237685, 20118135, 20137754, 20081792),
+  end2 = c(20238183, 20118633, 20138247, 20082285, 20238183, 20118633, 20138247, 20082285))
+
+annotations <- rbind(Nbarc_ann_filt, NLR_ann_filt)
+
+# Plotting
+gggenomes(genes = annotations, links = l0, seqs = s0, feats = list(blasts)) +
+  annotate("text", label=c("Haplotype A", "Haplotype B"), x=-7000, y=c(2,1), size = 3.5) +
+  #geom_seq_label(vjust = -6, hjust = 6, size = 3) +   
+  geom_seq() +
+  geom_link(offset = 0)  +
+  geom_gene(data=genes(.gene_types = unique(annotations$type)), aes(fill=type)) +
+  geom_feat(data=feats(blasts), linewidth = 5) +
+  annotate("text", label=paste("BLAST mid-point POS:\n", (blasts_A$end-blasts_A$start)/2+blasts_A$start), x=blasts_A$start-min(BLAST_hits_A$V9), y=2.2, size = 3.5) +
+  annotate("text", label=paste("BLAST mid-point POS:\n", ceiling((blasts_B$end-blasts_B$start)/2+blasts_B$start)), x=BLAST_hits_B$V9-min(BLAST_hits_B$V9), y=0.8, size = 3.5) +
+  scale_x_bp(suffix="bp", sep=" ") +
+  labs(x="Basepairs apart on each haplotype", fill = "Type")
+
+```
+
+# Genomic prediction validation plots
+
+```{r}
+# Run GAPIT_iteration.R with Iteration 44
+prediction_gt <- read.csv(file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Iteration_44_prediction.csv")
+
+prediction_gt_FID <- merge(prediction_gt, seedlings_all_library, by.x="Taxa", by.y="LIBRARY")
+parent_meta_filtNA <- parent_meta[!is.na(parent_meta$latitude),] # From Calculating_metrics.R
+prediction_gt_loc_selindv <- left_join(prediction_gt_FID, parent_meta_filtNA[,c(1,4,5)])
+prediction_gt_loc_selindv$latitude <- as.numeric(prediction_gt_loc_selindv$latitude)
+
+prediction_gt_RefInf1 <- prediction_gt_loc_selindv %>% filter(RefInf==1)
+prediction_gt_RefInf2 <- prediction_gt_loc_selindv %>% filter(RefInf==2)
+
+#ggmap::register_stadiamaps(KEY) from https://client.stadiamaps.com/dashboard/#
+min_lat <- min(parent_meta_filtNA$latitude)
+max_lat <- max(parent_meta_filtNA$latitude)
+min_long <- min(parent_meta_filtNA$longitude)
+max_long <- max(parent_meta_filtNA$longitude)
+
+borders <- c(bottom = min_lat + min_lat*0.01,
+                 top = max_lat - max_lat*0.01,
+                 left = min_long - min_long*0.005,
+                 right = max_long + max_long*0.005)
+
+map <- ggmap::get_stadiamap(borders, zoom = 8, maptype = "stamen_toner_lite") 
+
+p1 <- ggmap::ggmap(map) +
+  geom_point (data = prediction_gt_RefInf1, aes(x=longitude, y=latitude), colour="#D6A700", size = 1) +
+  geom_point (data = prediction_gt_RefInf2, aes(x=longitude, y=latitude, fill=latitude), shape=24, colour = "transparent", size = 1.5) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1), legend.position = "bottom") +
+  labs (x = expression("Longitude (" * degree * ")"), y = expression("Latitude (" * degree * ")"))+ 
+  scale_fill_gradient(name = "Testing individual latitudes", low = "blue", high = "red")
+
+#ggsave(p1, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/GP_48_map.jpg", width = 1500, height = 2500, limitsize = FALSE, units = "px")
+
+p2 <- ggplot() +
+  geom_point(data = prediction_gt_loc_selindv, aes(x=COI.x, y=Prediction, color=as.character(RefInf)), size = 1) + 
+  scale_color_manual(name = "Prediction Cross-validation Category", labels = c("Training", "Testing"), values = c("#D6A700", "blue"))  +
+  
+  geom_point(data = prediction_gt_RefInf2, aes(x=COI.x, y=Prediction, fill = latitude), shape=21, colour = "transparent", show.legend=F) + # To have testing predictions on top
+  scale_fill_gradient(name = "Testing individual latitudes", low = "blue", high = "red") +
+
+  geom_abline(intercept = 0, slope = 1, linetype = "dotted") +
+  geom_smooth (data = prediction_gt, aes(x=COI, y=Prediction), method = "lm", se = F, linewidth = 0.5, linetype="dashed") +
+  labs (y = expression("Genomic Predicted COI"^"0.25"), "Genomic Predicted COI^0.25", x = expression("Ground-truth COI"^"0.25")) +
+  theme_bw() +
+  theme(legend.position = "bottom", legend.box="vertical") 
+
+#ggsave(p2, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/GP_48.jpg", width = 1500, height = 2500, limitsize = FALSE, units = "px")
+
+# orig manhattan from prev sect.
+
+## Adding on the GP pos
+genetic_data = paste0("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/GAPIT_sigSNP.hapmap.hmp.txt")
+myG <- read.csv(file = genetic_data, sep = "\t", header = FALSE)
+MR_epi_snps <- read.table(file="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/DArTag_response_MR-epi.txt")
+chromosome_mapping <- c("MQA_CHR01" = 1, "MQA_CHR02" = 2,"MQA_CHR03" = 3, "MQA_CHR04" = 4, "MQA_CHR05" = 5, "MQA_CHR06" = 6, "MQA_CHR07" = 7, "MQA_CHR08" = 8, "MQA_CHR09" = 9, "MQA_CHR10" = 10, "MQA_CHR11" = 11)
+
+myG$V3 <- chromosome_mapping[myG$V3] 
+myG$V3[1] <- "chrom"
+
+myG_head <- myG[1,]
+myG_filt <- myG %>% filter(V4 %in% MR_epi_snps$V2)
+myG <- rbind(myG_head, myG_filt)
+
+myG_sel <- myG[-c(1),c(3,4)]
+colnames(myG_sel) <- c("CHR", "BP")
+
+myG_sel$CHR <- as.integer(myG_sel$CHR); myG_sel$BP <- as.integer(myG_sel$BP)
+GP_pval <- left_join(myG_sel, gwasResults_sort)
+gwasResults_sort_rmGP <- gwasResults_sort %>% filter(!(BP %in% GP_pval$BP))
+
+# Epistatic snps
+epi_snps <- read.table("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/Top_50_epiSNPs.txt")
+colnames(epi_snps)[1:2] <- c("CHR", "BP")
+chromosome_mapping <- c("MqA_CHR01" = 1, "MqA_CHR02" = 2,"MqA_CHR03" = 3, "MqA_CHR04" = 4, "MqA_CHR05" = 5, "MqA_CHR06" = 6, "MqA_CHR07" = 7, "MqA_CHR08" = 8, "MqA_CHR09" = 9, "MqA_CHR10" = 10, "MqA_CHR11" = 11)
+epi_snps$CHR <- as.integer(chromosome_mapping[epi_snps$CHR] )
+epi_pval <- left_join(epi_snps, gwasResults_sort)
+
+p3 <- ggplot () +
+  geom_point (data = gwasResults_sort_rmGP, aes(x=as.integer(index), y=-log10(P)), size = 0.5) + 
+  geom_point (data = GP_pval, aes(x=as.integer(index), y=-log10(P)),colour = '#D6A700', size = 0.5) +
+  geom_point (data = epi_pval, aes(x=as.integer(index), y=-log10(P)),colour = '#4981BF', size = 0.5) +
+  scale_x_continuous(breaks = lab_POS, labels = as.integer(ticks)) +
+  theme_bw () + theme(axis.text.x = element_text(size=10), plot.margin = unit(c(0.2,0.2,0.2,0.2), "cm"), legend.position = "none") +
+  geom_hline (yintercept = -log10(1e-7), linetype='dashed', linewidth = .75) +
+  labs(x = 'Chromosome') 
+
+ggsave(p3, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Manhattan_GP_p10e-8.jpg", width = 2500, height = 1250, limitsize = FALSE, units = "px")
+ggsave(p2, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Genomic_prediction_iter48.jpg", width = 1500, height = 2300, limitsize = FALSE, units = "px")
+ggsave(p1, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Genomic_prediction_iter48_distrib.jpg", width = 1250, height = 2300, limitsize = FALSE, units = "px")
+
+#### SI comparison of SNP volume to R2
+GP_SI_data <- read.csv("~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/GP_SNPVolComp.csv")
+
+plot_GP_SO <- ggplot() +
+  stat_smooth(data=GP_SI_data, aes(x=log10(SNP_Count), y=R2), method='lm', se=F, colour="grey", linetype="dashed") +
+  geom_point(data=GP_SI_data, aes(x=log10(SNP_Count), y=R2, colour=as.character(Iteration))) +
+  ggrepel::geom_text_repel(data=GP_SI_data, aes(x=log10(SNP_Count), y=R2, label=as.character(Iteration))) +
+  theme_bw() +
+  labs(x="Log10 transformed SNP count in iteration", y=expression("R"^"2"), colour="Iteration")
+
+plot_GP_SO
+
+#ggsave(plot_GP_SO, file = "~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/Genomic_prediction_SI.jpg", width = 1750, height = 1500, limitsize = FALSE, units = "px")
+
+```
+
+# No association between RGR and COI
+```{r}
+RGR_COI <- left_join(seedling_mquin_rust,seedling_heights)
+summary(lm(RGR_COI$COI~RGR_COI$RGR))
+```
+
+# BLAST res
+```{r}
+g97_BLAST_hapA <- read.table(file="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/mq.phase1_single_g97_S_1029_S66_L003_BLAST_hapA.blast")
+g97_BLAST_hapB <- read.table(file="~/RBGSyd_Technical Officer/MQuin/Publication/Paper_plots/data/mq.phase1_single_g97_S_1029_S66_L003_BLAST_hapB.blast")
+
+blast_colnames <- c('qseqid', 'sseqid', 'pident', 'length', 'mismatch', 'gapopen', 'qstart', 'qend', 'sstart', 'send', 'evalue', 'bitscore')
+
+colnames(g97_BLAST_hapA) <- blast_colnames; colnames(g97_BLAST_hapB) <- blast_colnames
+
+# Filter blast res
+g97_BLAST_hapA_filt <-  g97_BLAST_hapA[1:3,]
+g97_BLAST_hapB_filt <-  g97_BLAST_hapB[1:3,]
+
+library(chromoMap)
+library(tidyverse)
+
+# Chromosomes length extracted on recer server using awk '/^>/ {if (seqlen) print seqlen; print $0; seqlen=0; next} {seqlen += length($0)} END {print seqlen}' "/data/genomics/data/genomes/Mquin/genomes/Mqui_v1_hapA.fasta" > MqA_Chromosomes.txt # Prints out chromosome and the number of base pair within
+
+# Chromosome structure
+hapA_start <- min(g97_BLAST_hapA_filt$sstart)-10000; hapA_end <- max(g97_BLAST_hapA_filt$send)+10000; hapB_start <- min(g97_BLAST_hapB_filt$sstart)-10000; hapB_end <- max(g97_BLAST_hapB_filt$send)+10000
+
+chromosomes <- data.frame(V1=c("MqA_CHR08", "MqB_CHR08"), V2=c(hapA_start, hapB_start), V3=c(hapA_end, hapB_end))
+
+# Annotation files
+g97_BLAST_hapA_filt_ann <- g97_BLAST_hapA_filt %>% 
+  mutate (ID=paste0("hapA_ann_", seq(from=1, to=nrow(g97_BLAST_hapA_filt)))) %>% 
+  select(ID, sseqid, sstart, send, bitscore)
+
+g97_BLAST_hapB_filt_ann <- g97_BLAST_hapB_filt %>% 
+  mutate (ID=paste0("hapB_ann_", seq(from=1, to=nrow(g97_BLAST_hapB_filt)))) %>% 
+  select(ID, sseqid, sstart, send, bitscore)
+
+g97_annotation <- rbind(g97_BLAST_hapA_filt_ann, g97_BLAST_hapB_filt_ann)
+
+# Linking each gene repeat to each other
+links_init <- expand.grid(V1 = g97_BLAST_hapA_filt_ann$ID, V2 = g97_BLAST_hapB_filt_ann$ID)
+links <- data.frame(V1=links_init$V1, V2="1", V3=links_init$V2, V4="1", V5="")
+
+# Plot
+chromoMap(ch.file=list(chromosomes), 
+          data.files=list(g97_annotation),
+          show.links = T,
+          loci_links = links,
+          segment_annotation = T,
+          data_based_color_map = T, 
+          
+          n_win.factor = 2,  
+          canvas_width = 1000, 
+          canvas_height = 100, 
+          left_margin = 80, 
+          interactivity = F,
+          legend = c(T), 
+          plot.legend.labels = c("Bitscore"), 
+          data_colors = list(c("#D6A700", "#007D91")),
+          ch_gap = 20, 
+          plot_color = c("black")) 
+
+# Manual Rstudio export with 1360x400
+```

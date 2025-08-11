@@ -1,0 +1,34 @@
+Sample Number,Well ID,Sample Name,Additional Comments,Concentration ng/ul,species,Collection  site,pop,latitude,longitude
+1,A01,X01,NSW1158802,11.18,Melaleuca quinquenervia,queensland,20645,,
+2,B01,X02,NSW1158816,1.59,Melaleuca quinquenervia,queensland,15869,,
+3,C01,X03,NSW1158817,6.09,Melaleuca quinquenervia,queensland,15869,,
+4,D01,X04,NSW1158818,7.36,Melaleuca quinquenervia,queensland,15869,,
+5,E01,X05,NSW1158812,9.18,Melaleuca quinquenervia,queensland,20861,,
+6,F01,X06,NSW1158813,6.31,Melaleuca quinquenervia,queensland,20861,,
+7,G01,X07,NSW1158814,13.34,Melaleuca quinquenervia,queensland,20861,,
+8,H01,X08,NSW1158807,10.01,Melaleuca quinquenervia,queensland,20861,,
+9,A02,X09,NSW1158808,9.08,Melaleuca quinquenervia,queensland,20861,,
+10,B02,X10,NSW1158809,12.25,Melaleuca quinquenervia,queensland,20645,,
+11,C02,X11,NSW1158804,24.78,Melaleuca quinquenervia,queensland,20861,,
+12,D02,X12,NSW1158811,11.9,Melaleuca quinquenervia,queensland,20861,,
+13,E02,X13,NSW1158810,4.59,Melaleuca quinquenervia,queensland,15866,,
+14,F02,X14,NSW1158805,7.18,Melaleuca quinquenervia,queensland,15866,,
+15,G02,X15,NSW1158806,30.45,Melaleuca quinquenervia,queensland,15866,,
+16,H02,X16,NSW1158801,32.66,Melaleuca quinquenervia,queensland,15866,,
+17,A03,X17,NSW1158800,4.58,Melaleuca quinquenervia,queensland,15866,,
+18,B03,X18,NSW1158799,7.58,Melaleuca quinquenervia,queensland,15866,,
+19,C03,X19,NSW1158798,4.95,Melaleuca quinquenervia,queensland,15866,,
+20,D03,X20,NSW1158797,2.09,Melaleuca quinquenervia,queensland,15866,,
+21,E03,X21,NSW1158796,9.07,Melaleuca quinquenervia _ref,reference genome,,,
+22,F03,X22,NSW1158795,7.61,Melaleuca gibbosa,,,,
+23,G03,X23,NSW1158832,8.99,Melaleuca argenta,,,-16.683333,143.9
+24,H03,X24,NSW1158828,14.51,Melaleuca cajuputi,,,-16.266667,145.383333
+25,A04,X25,NSW1158826,9.5,Melaleuca nesophila,Kuranga native nursery,,,
+26,B04,X26,NSW1158829,25.62,Melaleuca linariifolia,,,,
+27,C04,X27,NSW1158834,5.79,Melaleuca squarrosa,Toolijoa nursery,,,
+28,D04,X28,NSW1158830,15.24,Melaleuca alternifolia,,,-28.833333,151.933333
+29,E04,X29,NSW1158835,11.26,Melaleuca ericifolia,Toolijoa nursery,,,
+30,F04,X30,NSW1158827,3.16,Melaleuca howeana,,,-31.546644,159.091186
+31,G04,X31,NSW1158831,6.72,Melaleuca nodosa,Toolijoa nursery,,,
+1,A01,,868442,8.46,Melaleuca leucadendra,Collected from mulched area directly north of Lakeside pavillion,,-34.072935,150.765899
+2,B01,,861838,10.41,Melaleuca viridiflora,Collected directly south of path near the western-most point of Lake Fitzpatrick,,-34.07386849,150.7684873

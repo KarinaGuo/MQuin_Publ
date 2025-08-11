@@ -1,0 +1,252 @@
+A list of libraries were generated using R from meta data supplied by multiple individuals and accumulated by Jason Bragg. These libraries corresponded to outgroups (i.e. species other than M. quinquenervia), the Mquin reference genome library, and 10 random NSW Mquin individuals selected in R using slice_sample (set.seed(12345)).
+
+Vcftools was run to keep this list of individuals and filter the VCF for indels, DP6, GQ20 and biallelic sites only.
+
+BASE_DIR="/home/karina/mqgwas/outgroups_iter_1"
+
+# Setting up directory structure and sym-linking relevant raw files do local directory 
+
+mkdir -p ${BASE_DIR}/data/meta/ 
+mkdir -p ${BASE_DIR}/data/rawvcf/ 
+mkdir -p ${BASE_DIR}/data/filtvcf_DP6_GQ20_indels_biallelic/
+mkdir -p ${BASE_DIR}/data/filtvcf_sigsites/
+mkdir -p ${BASE_DIR}/data/qualvcf/
+mkdir -p ${BASE_DIR}/data/catvcf/
+
+# Adding relevant files. Remember to move in the following files and change file paths of 2): 
+#1) libarary_list.txt to /data/meta (the list of individuls phenotyped). 
+#2) Mqui_v1_hap_regions.tsv to meta (list of rawvcf regions in order)
+#3) Mqui_region_vcfs.txt to meta (list of regions in order after filtering for missing, in the following directory ${BASE_DIR}/data/filtvcf_missing/). 
+
+ls -d /home/jgb/mqgwas/data/rawvcf/* > ${BASE_DIR}/rawvcf_list.txt
+for files in $(cat ${BASE_DIR}/rawvcf_list.txt); do ln -s $files ${BASE_DIR}/data/rawvcf/; done
+
+### Filtering
+
+# Masking sites with DP6 GQ20, removing individuals not phenotyped, removing indels and only keeping biallelic sites, and calculating mean depth of individuals
+cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 48 ${BASE_DIR}/code/sh/submit_vcftools_script.sh {} "${BASE_DIR}"
+
+# Concatenating then calculating depth metrics
+/data/genomics/apps/bcftools-1.17/bcftools concat -f ${BASE_DIR}/data/meta/Mqui_region_vcfs_indels-biallelic.txt -Oz -o ${BASE_DIR}/data/catvcf/Mq_indelbiall_GQDP_cat.vcf.gz
+
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/outgroups_iter_1/data/catvcf/Mq_indelbiall_GQDP_cat.vcf.gz" --depth --out ${BASE_DIR}/data/evalmetric_Mq_depth_catdepth_file.out
+
+Generated list of individuals and their mean depth across all sites in R
+
+##################################################################################################################################
+
+Concatenated Mq_DP4_GQ20_indels_onlybiall_cat
+
+/data/genomics/apps/bcftools-1.17/bcftools concat -f /home/karina/mqgwas/outgroups_iter_1/data/meta/Mqui_region_vcfs_indels-biallelic.txt -Oz -o /home/karina/mqgwas/outgroups_iter_1/data/catvcf/Mq_DP4_GQ20_indels_onlybiall_cat.vcf.gz
+
+
+#### BUSCO ID
+Grabbed full_table_eudicots_odb10.tsv from /home/jgb/mqphylo/meta and extracted chromosome, region start and end, and busco IDs. Outputted as "~/RBGSyd_Technical Officer/MQuin/Outgroups/data/meta/BUSCO_regions.txt" locally
+
+######################################################################################################### Running for all 18 QLD individuals + BLM + NSW indivs of MR tree
+mkdir -p outgroups_iter_5/data
+cd outgroups_iter_5/data
+mkdir fasta_BUSCO fasta_BUSCO_concat_lowmiss filtbcf_DP4_GQ20_BUSCO meta phylo_BUSCO_highInfor fasta_BUSCO_concat fasta_BUSCO_trim filtvcf_DP4_GQ20_BUSCO phylo_BUSCO rawvcf_BUSCO
+
+cd /home/karina/mqgwas/outgroups_iter_5/
+mkdir code
+cp -r /recer1/karina/outgroups_iter_1/code/* code/
+mkdir -p ${BASE_DIR}/data/phylo_BUSCO_lowmiss/iqtree/concat
+
+cp /home/karina/mqgwas/outgroups_iter_4/data/meta/* /home/karina/mqgwas/outgroups_iter_5/data/meta/
+ln -s /home/karina/mqgwas/outgroups_iter_4/data/rawvcf_BUSCO/* /home/karina/mqgwas/outgroups_iter_5/data/rawvcf_BUSCO/
+# Edit geno_out_library_list_subset.txt - all QLD + M. a, l , v, c ,nod
+
+# BUSCO Rawvcf has all the indivs
+BASE_DIR=/home/karina/mqgwas/outgroups_iter_5
+
+# Filter BUSCO vcf files - compressed with bgzip
+cat ${BASE_DIR}/data/meta/BUSCO_regions_noname.txt | parallel -j 96 ${BASE_DIR}/code/sh/submit_vcftools_script_BUSCO.sh {} "${BASE_DIR}"
+
+# Convert filtered vcf files to fasta at regions of interest
+cat ${BASE_DIR}/data/meta/BUSCO_regions_noname.txt | parallel -j 96 ${BASE_DIR}/code/sh/submit_consensus_script_BUSCO.sh {} "${BASE_DIR}"
+
+# Check all samples are present (last samp in lsit NSW_1079714_S89) - 39 indivs
+
+# Change sample names
+cat ${BASE_DIR}/data/meta/BUSCO_regions_noname.txt | parallel -j 96 ${BASE_DIR}/code/sh/submit_samplename_BUSCO.sh {} "${BASE_DIR}"
+
+# Concatenating
+while read REGION; do
+  output_file="${BASE_DIR}/data/fasta_BUSCO_concat/mq.call.${REGION}.fa"
+  touch "$output_file"
+  for file in ${BASE_DIR}/data/fasta_BUSCO_trim/mq.trim.${REGION}_*.fa; do
+    if [ -e "$file" ]; then
+      cat "$file" >> "$output_file"
+      echo "Concatenated $file to $output_file"
+    else
+      echo "No files matching $file"
+    fi
+  done
+done < "${BASE_DIR}/data/meta/BUSCO_regions_noname.txt"
+
+
+# Rename concatenated files
+while IFS=, read -r REGION NAME; do
+    for file in "${BASE_DIR}/data/fasta_BUSCO_concat/mq.call.${REGION}.fa"; do
+        if [ -e "$file" ]; then
+            new_file="${file//$REGION/$NAME}"
+            mv "$file" "$new_file"
+            echo "Renamed: $file -> $new_file"
+        fi
+    done
+done < "${BASE_DIR}/data/meta/BUSCO_regions.txt"
+
+
+conda activate clipkit
+
+cat ${BASE_DIR}/data/meta/BUSCO_names.txt | parallel -j 48 ${BASE_DIR}/code/sh/submit_trimtree_script_BUSCO.sh {} "${BASE_DIR}"
+	
+touch  "${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees"
+
+cat ${BASE_DIR}/data/phylo_BUSCO/iqtree/mq.call.*.seq.ex.tree.contree >> "${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees"
+
+
+ln -s /home/karina/mqgwas/outgroups_iter_5/data/phylo_BUSCO/*.seq.ex.phy /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF/raw_phylo/
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -S /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF/raw_phylo/ -pre ${BASE_DIR}/data/phylo_loci_for_CF/loci/loci
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -te ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees -p /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF/raw_phylo/ --scfl 100 --prefix ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/concord/scfl_alltrees_
+
+
+## Generate gcf
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -t ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees --gcf ${BASE_DIR}/data/phylo_loci_for_CF/loci/loci.treefile --prefix ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/concord/gcf_alltrees_
+
+
+## From the above file, take the .iqtree file, and plot a histogram of the 'Infor' column. Done in R plotting_SCF_INFOR.R. Use histogram to infer cut-off point of Infor. Taken cutoff point as 20. Rerun iqtree. Create /filtered_alltrees_Infor20.txt"
+
+while read -r FILE; do
+  REGION=$(echo "$FILE" | grep -oE '[0-9]+at[0-9]+')
+  TREE="${BASE_DIR}/data/phylo_BUSCO/iqtree/mq.call.$REGION.seq.ex.tree.contree"
+  cat "$TREE" >> "${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20"
+done < "${BASE_DIR}/data/meta/filtered_alltrees_Infor20.txt"
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -con ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20
+
+## Regenerate scfl & gcf tree using this
+rm /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF_redo/raw_phylo/*
+
+while read -r FILE; do
+  REGION=$(echo "$FILE" | grep -oE '[0-9]+at[0-9]+')
+  CONFILE="${BASE_DIR}/data/phylo_BUSCO/mq.call.$REGION.seq.ex.phy"
+  ln -s "${CONFILE}" /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF_redo/raw_phylo/
+done < "${BASE_DIR}/data/meta/filtered_alltrees_Infor20.txt"
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -S /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF_redo/raw_phylo/ -pre ${BASE_DIR}/data/phylo_loci_for_CF_redo/loci/loci
+
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -te ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20 -p /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF_redo/raw_phylo/ --scfl 100 --prefix ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/concord/scfl_HighInfor20_
+
+
+## Generate gcf
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -t ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20 --gcf ${BASE_DIR}/data/phylo_loci_for_CF_redo/loci/loci.treefile --prefix ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/concord/gcf_HighInfor20_
+
+###### Running astral
+export PATH=$PATH:/data/genomics/apps/ASTER-Linux/bin 
+astral-hybrid -t 96 -i "/home/karina/mqgwas/outgroups_iter_5/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20" -o /home/karina/mqgwas/outgroups_iter_5/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20_astral
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -t ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20_astral --gcf ${BASE_DIR}/data/phylo_loci_for_CF_redo/loci/loci.treefile --prefix ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/concord/gcf_HighInfor20_astral
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -te ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/alltrees_HighInfor20_astral -p /home/karina/mqgwas/outgroups_iter_5/data/phylo_loci_for_CF_redo/raw_phylo/ --scfl 100 --prefix ${BASE_DIR}/data/phylo_BUSCO/iqtree/concat/concord/scfl_HighInfor20_astral
+
+## Count missingness (N in fasta)
+tmpdir=/home/karina/delete/BUSCO_counts/
+outfile="/home/karina/delete/BUSCO_counts_N.txt"
+
+for file in /directory/mq.*.fa; do
+  filename=$(basename "$file")
+  awk -v fname="$filename" '
+    /^>/ { if (sample) print sample, count; sample = substr($0, 2); count = 0; next }
+    { gsub(/[^N]/, ""); count += length($0) }
+    END { print sample, count }
+  ' "$file" > "$tmpdir/$filename.counts"
+done
+
+samples=$(awk '{print $1}' "$tmpdir"/*.counts | sort | uniq)
+
+{
+  printf "%-20s" "Sample"
+  for file in "$tmpdir"/*.counts; do
+    printf "%s\t" "$(basename "$file" .counts)"
+  done
+  echo
+
+  # Write each row
+  for sample in $samples; do
+    printf "%-20s" "$sample"
+    for file in "$tmpdir"/*.counts; do
+      count=$(awk -v s="$sample" '{gsub(/\r/, ""); if ($1 == s) print $2}' "$file")
+      printf "%s\t" "${count:-0}"
+    done
+    echo
+  done
+} > "$outfile"
+
+################################################################## CHR08 gene tree
+
+BASE_DIR=/home/karina/mqgwas/outgroups_iter_5
+mkdir /home/karina/mqgwas/outgroups_iter_5/MR_region 
+cd MR_region
+mkdir fasta_BUSCO fasta_BUSCO_trim filtvcf_DP4_GQ20_BUSCO phylo_BUSCO fasta_BUSCO_concat filtbcf_DP4_GQ20_BUSCO rawvcf_BUSCO
+mkdir phylo_BUSCO/iqtree
+
+# Running mpileup script for samples nad region of interest only (MqA_CHR08 --from-bp 19157911 --to-bp 19557911)
+/data/genomics/apps/bcftools-1.17/bcftools mpileup --annotate FORMAT/DP,FORMAT/AD -Ou -f /stage/jgb/mq1/ref/Mqui_v1_hapA.fasta -b /home/jgb/mqgwas/data/meta/bam.list.mq.all -r MqA_CHR08:19157911-19557911 --samples-file ${BASE_DIR}/data/meta/geno_out_library_list_subset.txt | /data/genomics/apps/bcftools-1.17/bcftools call -m -f GQ -Oz -o ${BASE_DIR}/MR_region/rawvcf_BUSCO/mq.call.MqA_CHR08:19157911-19557911.vcf.gz
+
+# Filter rawvcf
+/usr/bin/vcftools --gzvcf ${BASE_DIR}/MR_region/rawvcf_BUSCO/mq.call.MqA_CHR08:19157911-19557911.vcf.gz --keep ${BASE_DIR}/data/meta/geno_out_library_list_subset.txt --remove-indels --min-alleles 2 --max-alleles 2 --minDP 4 --minGQ 20 --recode --recode-INFO-all --stdout | bgzip -c > ${BASE_DIR}/MR_region/filtvcf_DP4_GQ20_BUSCO/mq.call.MqA_CHR08:19157911-19557911_gtfilt.vcf.gz
+
+# Converting VCF to BCF to allow consensus
+/data/genomics/apps/bcftools-1.17/bcftools view -O b -o ${BASE_DIR}/MR_region/filtbcf_DP4_GQ20_BUSCO/mq.call.MqA_CHR08:19157911-19557911_gtfilt.bcf ${BASE_DIR}/MR_region/filtvcf_DP4_GQ20_BUSCO/mq.call.MqA_CHR08:19157911-19557911_gtfilt.vcf.gz
+
+# Index
+
+/data/genomics/apps/bcftools-1.17/bcftools index ${BASE_DIR}/MR_region/filtbcf_DP4_GQ20_BUSCO/mq.call.MqA_CHR08:19157911-19557911_gtfilt.bcf
+
+# Convert to fasta by region and individual; trimming generated fasta file to region of interest
+
+while read SAMPLE; do 
+  cat /stage/jgb/mq1/ref/Mqui_v1_hapA.fasta | /data/genomics/apps/bcftools-1.17/bcftools consensus -s $SAMPLE --missing "N" --mark-del "N" --mark-ins lc -I ${BASE_DIR}/MR_region/filtbcf_DP4_GQ20_BUSCO/mq.call.MqA_CHR08:19157911-19557911_gtfilt.bcf > ${BASE_DIR}/MR_region/fasta_BUSCO/mq.call.MqA_CHR08:19157911-19557911_${SAMPLE}.fa
+  echo "Consensus generated for ${REGION} ; ${SAMPLE}"
+  /usr/bin/samtools faidx ${BASE_DIR}/MR_region/fasta_BUSCO/mq.call.MqA_CHR08:19157911-19557911_${SAMPLE}.fa MqA_CHR08:19157911-19557911 -o ${BASE_DIR}/MR_region/fasta_BUSCO_trim/mq.trim.MqA_CHR08:19157911-19557911_${SAMPLE}.fa
+  rm ${BASE_DIR}/MR_region/fasta_BUSCO/mq.call.MqA_CHR08:19157911-19557911_${SAMPLE}.fa
+  echo "Consensus trimmed for MqA_CHR08:19157911-19557911 ; ${SAMPLE}"
+done < ${BASE_DIR}/data/meta/geno_out_library_list_subset.txt
+
+# Change sample names
+while read SAMPLE; do
+  for file in ${BASE_DIR}/MR_region/fasta_BUSCO_trim/*.fa; do
+    if [[ $file == *"${SAMPLE}"* ]]; then
+      sed -i "1s/^>.*/>${SAMPLE}/" "$file"
+      echo "Renamed $file with "${SAMPLE}""
+    fi
+  done
+done < ${BASE_DIR}/data/meta/geno_out_library_list_subset.txt
+
+# Concatenating
+output_file="${BASE_DIR}/MR_region/fasta_BUSCO_concat/mq.call.MqA_CHR08:19157911-19557911.fa"
+touch "$output_file"
+for file in ${BASE_DIR}/MR_region/fasta_BUSCO_trim/mq.trim.MqA_CHR08:19157911-19557911_*.fa; do
+  if [ -e "$file" ]; then
+    cat "$file" >> "$output_file"
+    echo "Concatenated $file to $output_file"
+  else
+    echo "No files matching $file"
+  fi
+done
+
+# Rename concatenated file
+mv "${BASE_DIR}/MR_region/fasta_BUSCO_concat/mq.call.MqA_CHR08:19157911-19557911.fa" "${BASE_DIR}/MR_region/fasta_BUSCO_concat/mq.call.MR_region.fa"
+
+conda activate clipkit
+
+python "${BASE_DIR}/code/py/filer_alignment.py" "${BASE_DIR}/MR_region/fasta_BUSCO_concat/mq.call.MR_region.fa" > "${BASE_DIR}/MR_region/phylo_BUSCO/mq.call.MR_region.seq.ex.fa" 
+
+clipkit "${BASE_DIR}/MR_region/phylo_BUSCO/mq.call.MR_region.seq.ex.fa"  -s nt -gc "\-*xXN" -m gappy -g 0.5 -of phylip_relaxed -o "${BASE_DIR}/MR_region/phylo_BUSCO/mq.call.MR_region.seq.ex.phy"
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -s "${BASE_DIR}/MR_region/phylo_BUSCO/mq.call.MR_region.seq.ex.phy" -B 1000 -alrt 1000 --boot-trees -pre "${BASE_DIR}/MR_region/phylo_BUSCO/iqtree/mq.call.MR_region.seq.ex.tree"

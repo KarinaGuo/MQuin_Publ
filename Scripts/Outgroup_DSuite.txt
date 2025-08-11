@@ -1,0 +1,64 @@
+
+# Made SETS.txt with all samples allocated their species. Samples not in the tree below are set as "xxx" (unused). M. nodosa set as Outgroup. Removed samples NSW1158802_S97 & NSW1158809_S106 of QLD as determined by conStruct (too far in distance to other QLD samples)
+# cp "/recer1/karina/outgroups_iter_1/data/BUSCO/phylo_BUSCO_highInfor/iqtree/concat/alltrees_HighInfor.contree" /home/karina/mqgwas/outgroups_iter_3/DSuite_data/
+ln -s "/recer1/karina/outgroups_iter_1/data/catvcf/Mq_DP4_GQ20_indels_onlybiall_cat.vcf.gz" /home/karina/mqgwas/outgroups_iter_2/DSuite_data/
+
+
+################################################################################################################################################# 
+#DSuite Run 10 Rerunning DSuite whole genome (DSuite run 5) but splitting NSW into northern NSW (10 individuals of each) and QLD as one population merged) # Removed individual depth filter in VCF
+
+Run  "C:\Users\swirl\OneDrive\Documents\RBGSyd_Technical Officer\MQuin\Outgroups\Introgression\Dsuite\DSuite_Run_10\Selecting_DSuite10_indivs.R" to select indivs
+
+BASE_DIR=/home/karina/mqgwas/outgroups_iter_2/DSuite_run10
+
+
+## Making new vcf with em indivs
+mkdir -p ${BASE_DIR}/data/rawvcf/ 
+mkdir -p ${BASE_DIR}/data/filtvcf_DP6_GQ20/
+mkdir -p ${BASE_DIR}/data/filtvcf_indels_biallelic/
+mkdir -p ${BASE_DIR}/data/filtvcf_exlowdepth/
+mkdir -p ${BASE_DIR}/data/filtvcf_missing/
+mkdir -p ${BASE_DIR}/data/filtvcf_hwe/
+mkdir -p ${BASE_DIR}/data/qualvcf/
+mkdir -p ${BASE_DIR}/data/catvcf/
+
+ln -s /recer1/karina/outgroups_iter_1/data/rawvcf/* ${BASE_DIR}/data/rawvcf/.
+
+# Filter vcf
+# Removing indels and only keeping biallelic sites, removing individuals
+
+mkdir -p ${BASE_DIR}/code/sh ${BASE_DIR}/code/r
+cp -r /home/karina/mqgwas/outgroups_iter_2/DSuite_run7/code/* ${BASE_DIR}/code
+mkdir -p ${BASE_DIR}/data/meta
+cp /home/jgb/mqgwas/data/meta/Mqui_region_vcfs.txt /home/karina/mqgwas/outgroups_iter_2/DSuite_run10/data/meta/
+cp "/home/karina/mqgwas/parent_iter_2/data/meta/Mqui_v1_hap_regions.tsv" ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv
+
+cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 96 ${BASE_DIR}/code/sh/submit_vcftools_script.sh {} "${BASE_DIR}"
+
+#Concatenated vcf files filtered for depth and missingness
+#Copied over /home/jgb/mqgwas/data/meta/Mqui_region_vcfs.txt which was generated using /home/jgb/mqgwas/code/py/region2vcffilenames.py and changed file paths
+/data/genomics/apps/bcftools-1.17/bcftools concat -f ${BASE_DIR}/data/meta/Mqui_region_vcfs.txt -Oz -o ${BASE_DIR}/data/catvcf/Mq_Dsuite_run10_cat.vcf.gz
+
+mv ${BASE_DIR}/data/catvcf/Mq_Dsuite_run10_cat.vcf.gz ${BASE_DIR}/Mq_Dsuite_run10_cat.vcf.gz
+mv ${BASE_DIR}/data/SETS.txt ${BASE_DIR}/SETS.txt
+mv ${BASE_DIR}/data/meta/indivs.txt ${BASE_DIR}/indivs.txt
+
+rm -r /home/karina/mqgwas/outgroups_iter_2/DSuite_run10/data/
+mkdir /home/karina/mqgwas/outgroups_iter_2/DSuite_run10/data/
+
+# Removing all other files...
+
+mv ${BASE_DIR}/Mq_Dsuite_run10_cat.vcf.gz ${BASE_DIR}/data/
+mv ${BASE_DIR}/SETS.txt ${BASE_DIR}/data/SETS.txt
+mv ${BASE_DIR}/indivs.txt ${BASE_DIR}/data/indivs.txt
+
+## Run DSuite
+
+cd /home/karina/mqgwas/outgroups_iter_2/
+mkdir -p DSuite_run10/data
+mkdir DSuite_run10/_rerunDsuite10/
+cd DSuite_run10
+cp "/home/karina/mqgwas/outgroups_iter_2/DSuite_run8/data/SETS.txt" data/
+cd ..
+
+/data/genomics/apps/Dsuite/Build/Dsuite Dtrios -n rerunDsuite10/ -o DSuite_run10/ DSuite_run10/data/catvcf/Mq_DP4_GQ20_indels_onlybiall_cat.vcf.gz DSuite_run10/data/SETS.txt  > DSuite_log.txt 2>&1

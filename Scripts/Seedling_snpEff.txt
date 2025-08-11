@@ -1,0 +1,800 @@
+# /data/genomics/apps/snpeff/snpEff/
+# /recer1/rgds/genomes/Mquin/ms_25082023/
+
+
+	# Change wd
+cd /data/genomics/apps/snpeff/snpEff/
+
+# Mquin genome
+mquin.genome : mquin
+
+	# Adding the genome 
+cp "/recer1/rgds/genomes/Mquin/genomes/Mqui_v1_hapA.fasta" /data/genomics/apps/snpeff/snpEff/data/genomes/mquin.fa
+
+  ## NLR
+	# Building gff databases
+mkdir /data/genomics/apps/snpeff/snpEff/data/mquin/
+cp /recer1/rgds/genomes/Mquin/ms_25082023/* /data/genomics/apps/snpeff/snpEff/data/mquin/
+cp /recer1/rgds/genomes/Mquin/annotation_files/gemoma_annotation_hapA.gff /data/genomics/apps/snpeff/snpEff/data/mquin/
+
+cd data/mquin/
+
+### Changing names and scaffold names
+mv nlr_hapA.gff3 genes.gff
+sed 's/MQHAP1/MqA_/g' "/data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff" > /data/genomics/apps/snpeff/snpEff/data/mquin/genes_modified.gff
+sed 's/\.01//g' "/data/genomics/apps/snpeff/snpEff/data/mquin/genes_modified.gff" > /data/genomics/apps/snpeff/snpEff/data/mquin/genes_modified_2.gff
+mv /data/genomics/apps/snpeff/snpEff/data/mquin/genes_modified_2.gff "/data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff"
+rm "/data/genomics/apps/snpeff/snpEff/data/mquin/genes_modified.gff"
+
+java -jar /data/genomics/apps/snpeff/snpEff/snpEff.jar build -gff3 -v -noCheckCds -noCheckProtein mquin
+
+	# Running SNPeff
+# 1. Seedling VCF file filtered down to the top SNPs of association
+
+cd /home/karina/mqgwas/snpeff
+/usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/data/catvcf/Mq_filt_cat.vcf.gz" --positions "/home/karina/mqgwas/iter_4/iter4_gwas2_top500_sigSNPlocs.txt" --recode --recode-INFO-all --out /home/karina/mqgwas/snpeff/Mq_seedling_filt_cat_top500_sigSNPlocs
+
+# 2. 
+
+cd /home/karina/mqgwas/snpeff/NLR
+java -Xmx8g -jar /data/genomics/apps/snpeff/snpEff/snpEff.jar mquin "/home/karina/mqgwas/snpeff/Mq_seedling_filt_cat_top500_sigSNPlocs.recode.vcf" > "/home/karina/mqgwas/snpeff/NLR/Mq_seedling_filt_cat_top500_sigSNPlocs_ann.vcf"
+
+mv "/data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff" /data/genomics/apps/snpeff/snpEff/data/mquin/nlr_hapA_alt.gff3
+
+# Extracting annotation info from the vcf
+/data/genomics/apps/bcftools-1.17/bcftools query -f '%CHROM %POS %ANN\n' "/home/karina/mqgwas/snpeff/NLR/Mq_seedling_filt_cat_top500_sigSNPlocs_ann.vcf" > "/home/karina/mqgwas/snpeff/NLR/Mq_NLR_ann.vcf"
+
+#########
+
+## Nbarc
+	# Building gff databases
+
+cd /data/genomics/apps/snpeff/snpEff/data/mquin/
+
+### Changing names and scaffold names
+mv /data/genomics/apps/snpeff/snpEff/data/mquin/nbarc_hapA.gff3 /data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff
+cd /data/genomics/apps/snpeff/snpEff
+
+java -jar /data/genomics/apps/snpeff/snpEff/snpEff.jar build -gff3 -v -noCheckCds -noCheckProtein mquin
+
+	# Running SNPeff
+# 2. 
+mkdir /home/karina/mqgwas/snpeff/NBARC
+cd /home/karina/mqgwas/snpeff/NBARC
+java -Xmx8g -jar /data/genomics/apps/snpeff/snpEff/snpEff.jar mquin "/home/karina/mqgwas/snpeff/Mq_seedling_filt_cat_top500_sigSNPlocs.recode.vcf" > "/home/karina/mqgwas/snpeff/NBARC/Mq_seedling_filt_cat_top500_sigSNPlocs_ann.vcf"
+
+mv "/data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff" /data/genomics/apps/snpeff/snpEff/data/mquin/nbarc_hapA.gff3
+
+# Extracting annotation info from the vcf
+/data/genomics/apps/bcftools-1.17/bcftools query -f '%CHROM %POS %ANN\n' "/home/karina/mqgwas/snpeff/NBARC/Mq_seedling_filt_cat_top500_sigSNPlocs_ann.vcf" > "/home/karina/mqgwas/snpeff/NBARC/Mq_NBARC_ann.vcf"
+
+#########
+
+## gemoma
+	# Building gff databases
+
+cd /data/genomics/apps/snpeff/snpEff/data/mquin/
+
+### Changing names and scaffold names
+mv "/data/genomics/apps/snpeff/snpEff/data/mquin/gemoma_annotation_hapA.gff" /data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff
+cd /data/genomics/apps/snpeff/snpEff
+
+java -jar /data/genomics/apps/snpeff/snpEff/snpEff.jar build -gff3 -v -noCheckCds -noCheckProtein mquin
+
+	# Running SNPeff
+# 2. 
+mkdir /home/karina/mqgwas/snpeff/gemoma
+cd /home/karina/mqgwas/snpeff/gemoma
+java -Xmx8g -jar /data/genomics/apps/snpeff/snpEff/snpEff.jar mquin "/home/karina/mqgwas/snpeff/Mq_seedling_filt_cat_top500_sigSNPlocs.recode.vcf" > "/home/karina/mqgwas/snpeff/gemoma/Mq_seedling_filt_cat_top500_sigSNPlocs_ann.vcf"
+
+mv "/data/genomics/apps/snpeff/snpEff/data/mquin/genes.gff" /data/genomics/apps/snpeff/snpEff/data/mquin/gemoma_annotation_hapA.gff
+
+# Extracting annotation info from the vcf
+/data/genomics/apps/bcftools-1.17/bcftools query -f '%CHROM %POS %ANN\n' "/home/karina/mqgwas/snpeff/gemoma/Mq_seedling_filt_cat_top500_sigSNPlocs_ann.vcf" > "/home/karina/mqgwas/snpeff/gemoma/Mq_gemoma_ann.vcf"
+
+## Results
+##INFO=<ID=ANN,Number=.,Type=String,Description="Functional annotations: 'Allele | Annotation | Annotation_Impact |
+Gene_Name | Gene_ID | Feature_Type | Feature_ID | Transcript_BioType | Rank | HGVS.c | HGVS.p | cDNA.pos / cDNA.leng
+th | CDS.pos / CDS.length | AA.pos / AA.length | Distance | ERRORS / WARNINGS / INFO' ">
+
+###################### Generating fasta
+	# NLR genes of importance
+
+MqA_CHR08	AUGUSTUS	gene	11422956	11428777	1.28	-	.	ID=g4997;
+MqA_CHR08	AUGUSTUS	gene	16791730	16795566	1	-	.	ID=g6020;
+MqA_CHR08	AUGUSTUS	gene	19350017	19354857	0.61	+	.	ID=g9180;
+MqA_CHR08	AUGUSTUS	gene	19333739	19337973	0.49	+	.	ID=g9176;
+
+	# Individuals of significant COI put into Individuals.txt
+
+	# Copying files over
+cp "/recer1/karina/outgroups_iter_1/code/sh/submit_consensus_script_BUSCO.sh" /home/karina/mqgwas/snpeff/protein/code/ # Edited
+
+Notes:
+
+rev tr - if negative
+
+- Run it on hapa and blast on hapb to see whether its transcribed twice
+- use the beagles vcf - pull out all the sequences for a single gene with the N's for each sample. read down one side of the phasing for one phase and the other side for the other phase
+
+########### Running with beagled vcf
+1. create new file with genes of interest - genes_of_intest.txt
+2. create new file with relevant genes from gff
+
+1. create new file with genes of interest - genes_of_intest.txt
+2. create new file with relevant genes from gff
+
+while read -r gene; do
+    # Grep the gene from hapA_alt.gff3 and append to relevant_hapA_alt.txt if found
+    grep "$gene" data/ann_files/nlr_hapA_alt.gff3 >> data/ann_files/NLR_relevant_hapA.txt
+done < data/genes_of_interest.txt
+
+while read -r gene; do
+    # Grep the gene from hapA_alt.gff3 and append to relevant_hapA_alt.txt if found
+    grep "$gene" data/ann_files/nbarc_hapA.gff3 >> data/ann_files/nbarc_relevant_hapA.txt
+done < data/genes_of_interest.txt
+
+while read -r gene; do
+    # Grep the gene from hapA_alt.gff3 and append to relevant_hapA_alt.txt if found
+    grep "$gene" data/ann_files/gemoma_annotation_hapA.gff >> data/ann_files/gemoma_relevant_hapA.txt
+done < data/genes_of_interest.txt
+
+3. Pull out cds
+
+grep "CDS" "/home/karina/mqgwas/snpeff/protein/data/ann_files/NLR_relevant_hapA.txt" > "/home/karina/mqgwas/snpeff/protein/data/ann_files/NLR_relevant_CDS_hapA.txt"
+
+grep "CDS" "/home/karina/mqgwas/snpeff/protein/data/ann_files/nbarc_relevant_hapA.txt" > "/home/karina/mqgwas/snpeff/protein/data/ann_files/nbarc_relevant_CDS_hapA.txt"
+
+grep "CDS" "/home/karina/mqgwas/snpeff/protein/data/ann_files/gemoma_relevant_hapA.txt" > "/home/karina/mqgwas/snpeff/protein/data/ann_files/gemoma_relevant_CDS_hapA.txt"
+
+4. filter file 2
+awk -F'\t' '{
+    # Extract the desired field from $9
+    split($9, a, "="); 
+    split(a[2], b, ";"); 
+    # Print the specified columns and the extracted value
+    print $1, $4, $5, $7, b[1]
+}' OFS='\t' data/ann_files/NLR_relevant_CDS_hapA.txt > data/ann_files/NLR_subs_relevant_CDS_hapA.txt
+
+awk -F'\t' '{
+    # Extract the desired field from $9
+    split($9, a, "="); 
+    split(a[2], b, ";"); 
+    # Print the specified columns and the extracted value
+    print $1, $4, $5, $7, b[1]
+}' OFS='\t' data/ann_files/nbarc_relevant_CDS_hapA.txt > data/ann_files/nbarc_subs_relevant_CDS_hapA.txt
+
+awk -F'\t' '{
+    # Extract the desired field from $9
+    split($9, a, "="); 
+    split(a[2], b, ";"); 
+    # Print the specified columns and the extracted value
+    print $1, $4, $5, $7, b[1]
+}' OFS='\t' data/ann_files/gemoma_relevant_CDS_hapA.txt > data/ann_files/gemoma_subs_relevant_CDS_hapA.txt
+
+4. Create separate chr files with set individuals
+for CHR in MqA_CHR01 MqA_CHR02 MqA_CHR03 MqA_CHR04 MqA_CHR05 MqA_CHR06 MqA_CHR07 MqA_CHR08 MqA_CHR09 MqA_CHR10 MqA_CHR11; do
+  /usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/gwas_7/Mq_filt_cat.beagle.vcf.gz" --keep ${BASE_DIR}/data/Individuals.txt --chr ${CHR} --recode --recode-INFO-all --out ${BASE_DIR}/data/rawvcf/mq.call.${CHR}.imput
+done
+
+5. change fasta based on file 2
+#for each row in .txt as region -> run the cycle augment region and take last column as sample name change
+
+BASE_DIR=/home/karina/mqgwas/snpeff/protein
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do   
+    REGION="${CHR}:${FR_BP}-${TO_BP}"
+
+    # VCF -> gzBCF -> Index -> Consensus for hap 1 & 2 & Ref -> fasta
+    "${BASE_DIR}/code/submit_consensus_script_phased.sh" "${REGION}" "${BASE_DIR}"
+
+    # Sample names within fasta files were converted to NSWIDs
+    "${BASE_DIR}/code/submit_samplename_phased.sh" "${REGION}" "${BASE_DIR}"
+
+done < "${BASE_DIR}/data/ann_files/all_CDS_hapA.txt"
+
+    # Change fasta file name by region -> gene CDS
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do  
+    REGION=$CHR:$FR_BP-$TO_BP  
+    for file in "${BASE_DIR}/data/imput_fasta_trim/"*"${REGION}"*".fa"; do
+        if [[ -e "$file" ]]; then
+            new_file="${file//$REGION/$NAME}"
+            mv "$file" "$new_file"
+            echo "Renamed: $file -> $new_file"
+        fi
+    done
+done < "${BASE_DIR}/data/ann_files/all_CDS_hapA.txt"
+
+   # Remove empty files
+find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_trim/ -size 0 -print -delete
+
+   # Concatenate CDS versions of gene regions
+rm /home/karina/mqgwas/snpeff/protein/data/imput_fasta_CDS_concat/*
+
+while IFS=$'\t' read -r NAME STR; do
+
+	rm ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa
+        touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.${NAME}*_reference.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa"; done
+        
+    while read -r IND; do
+	rm ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa
+        touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.phase1_${NAME}*_${IND}.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa"; done
+ 
+	rm ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa
+        touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.phase2_${NAME}*_${IND}.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa"; done
+
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+	
+	# Remove duped sample names
+for file in "${BASE_DIR}/data/imput_fasta_CDS_concat/"*; do
+    awk '
+        # If the line starts with ">", increment header count for this line
+        /^>/ {
+            header_count[$0]++
+            # If this header is duplicated, skip further occurrences
+            if (header_count[$0] > 1) next
+        }
+        # Print the line if it’s not a duplicate header or any other line
+        { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+done
+
+find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_trim/ -size 0 -print -delete
+rm ${BASE_DIR}/data/imput_fasta_concat/*
+
+while IFS=$'\t' read -r NAME STR; do
+
+  # Phase 1 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1*.fa; do
+    if [[ $file == *"${NAME}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa"
+    fi
+  done
+
+  # Phase 2 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2*.fa; do
+    if [[ $file == *"${NAME}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa"
+    fi
+  done
+
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+
+find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_concat/ -size 0 -print -delete
+
+############ Reverse comp
+# Reversing any fastas with a negative STR
+while IFS=$'\t' read -r NAME STR; do
+
+    # Check if there's a file containing ${NAME} in the /directory path
+    if find ${BASE_DIR}/data/imput_fasta_concat/ -type f -name "*${NAME}*" | grep -q .; then
+
+        # Run the appropriate script based on the value of STR
+        if [[ "$STR" == "-" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${NAME}" "TRUE"
+        elif [[ "$STR" == "+" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${NAME}" "FALSE"
+        fi
+
+    fi
+
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+
+############# IQTree up the fastas
+conda activate clipkit
+
+while IFS=$'\t' read -r NAME STR; do
+
+    if find ${BASE_DIR}/data/imput_fasta_concat_final/ -type f -name "*${NAME}*" | grep -q .; then
+
+	# PHASE 1
+        clipkit "${BASE_DIR}/data/imput_fasta_concat_final/mq.phase1_edit_reverse_${NAME}.fa" -s nt -gc "\-*xXN" -m gappy -g 0.5 -of phylip_relaxed -o "${BASE_DIR}/data/imput_phy/mq.phase1_edit_reverse_${NAME}.phy"
+	/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -s "${BASE_DIR}/data/imput_phy/mq.phase1_edit_reverse_${NAME}.phy" -B 1000 -alrt 1000 --boot-trees -pre "${BASE_DIR}/data/imput_phytree/mq.phase1_edit_reverse_${NAME}.tree"
+
+	# PHASE 2
+	clipkit "${BASE_DIR}/data/imput_fasta_concat_final/mq.phase2_edit_reverse_${NAME}.fa" -s nt -gc "\-*xXN" -m gappy -g 0.5 -of phylip_relaxed -o "${BASE_DIR}/data/imput_phy/mq.phase2_edit_reverse_${NAME}.phy"
+	/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -s "${BASE_DIR}/data/imput_phy/mq.phase2_edit_reverse_${NAME}.phy" -B 1000 -alrt 1000 --boot-trees -pre "${BASE_DIR}/data/imput_phytree/mq.phase2_edit_reverse_${NAME}.tree"
+
+    fi
+
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+
+mv ${BASE_DIR}/data/imput_phytree/*contree ${BASE_DIR}/data/imput_contree/
+
+cat ${BASE_DIR}/data/imput_contree/*contree > ${BASE_DIR}/data/imput_contree/alltrees
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -con ${BASE_DIR}/data/imput_contree/alltrees
+
+################################################################################################################################################ RERUN FOR G97
+4. Create separate chr files with ALL individuals
+for CHR in MqA_CHR01 MqA_CHR02 MqA_CHR03 MqA_CHR04 MqA_CHR05 MqA_CHR06 MqA_CHR07 MqA_CHR08 MqA_CHR09 MqA_CHR10 MqA_CHR11; do
+  /usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/gwas_7/Mq_filt_cat.beagle.vcf.gz" --keep ${BASE_DIR}/data/Individuals.txt --chr ${CHR} --recode --recode-INFO-all --out ${BASE_DIR}/data/rawvcf/mq.call.${CHR}.imput
+done
+
+5. change fasta based on file 2
+#for each row in .txt as region -> run the cycle augment region and take last column as sample name change
+
+BASE_DIR=/home/karina/mqgwas/snpeff/protein
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do   
+    REGION="${CHR}:${FR_BP}-${TO_BP}"
+
+    # VCF -> gzBCF -> Index -> Consensus for hap 1 & 2 & Ref -> fasta
+    "${BASE_DIR}/code/submit_consensus_script_phased.sh" "${REGION}" "${BASE_DIR}"
+
+    # Sample names within fasta files were converted to NSWIDs
+    "${BASE_DIR}/code/submit_samplename_phased.sh" "${REGION}" "${BASE_DIR}"
+
+done < "${BASE_DIR}/data/ann_files/all_CDS_g97.txt"
+
+    # Change fasta file name by region -> gene CDS
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do  
+    REGION=$CHR:$FR_BP-$TO_BP  
+    for file in "${BASE_DIR}/data/imput_fasta_trim/"*"${REGION}"*".fa"; do
+        if [[ -e "$file" ]]; then
+            new_file="${file//$REGION/$NAME}"
+            mv "$file" "$new_file"
+            echo "Renamed: $file -> $new_file"
+        fi
+    done
+done < "${BASE_DIR}/data/ann_files/all_CDS_g97.txt"
+
+   # Remove empty files
+find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_trim/ -size 0 -print -delete
+
+   # Concatenate CDS versions of gene regions
+# rm /home/karina/mqgwas/snpeff/protein/data/imput_fasta_CDS_concat/*
+
+while IFS=$'\t' read -r NAME STR; do
+
+	rm ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa
+        touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.${NAME}*_reference.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa"; done
+        
+    while read -r IND; do
+	rm ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa
+        touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.phase1_${NAME}*_${IND}.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa"; done
+ 
+	rm ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa
+        touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.phase2_${NAME}*_${IND}.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa"; done
+    done < data/Individuals.txt
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+	
+	# Remove duped sample names
+for file in "${BASE_DIR}/data/imput_fasta_CDS_concat/"*"g97.t1"*; do
+    awk '
+        # If the line starts with ">", increment header count for this line
+        /^>/ {
+            header_count[$0]++
+            # If this header is duplicated, skip further occurrences
+            if (header_count[$0] > 1) next
+        }
+        # Print the line if it’s not a duplicate header or any other line
+        { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+done
+
+while IFS=$'\t' read -r NAME STR; do
+
+  # Phase 1 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1*.fa; do
+    if [[ $file == *"${NAME}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa"
+    fi
+  done
+
+  # Phase 2 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2*.fa; do
+    if [[ $file == *"${NAME}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa"
+    fi
+  done
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+
+find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_concat/ -size 0 -print -delete
+
+############ Reverse comp
+# Reversing any fastas with a negative STR
+while IFS=$'\t' read -r NAME STR; do
+
+    # Check if there's a file containing ${NAME} in the /directory path
+    if find ${BASE_DIR}/data/imput_fasta_concat/ -type f -name "*${NAME}*" | grep -q .; then
+
+        # Run the appropriate script based on the value of STR
+        if [[ "$STR" == "-" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${NAME}" "TRUE"
+        elif [[ "$STR" == "+" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${NAME}" "FALSE"
+        fi
+
+    fi
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+
+
+################################################################################################################################################ RERUN FOR G97 but for all individuals?!?
+BASE_DIR=/home/karina/mqgwas/snpeff/protein_g97_all_indvs
+
+
+4. Create separate chr files with ALL individuals
+for CHR in MqA_CHR08; do
+  /usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/gwas_7/Mq_filt_cat.beagle.vcf.gz" --keep ${BASE_DIR}/Individuals.txt --chr ${CHR} --recode --recode-INFO-all --out ${BASE_DIR}/data/rawvcf/mq.call.${CHR}.imput
+done
+
+/data/genomics/apps/bcftools-1.17/bcftools query -l "/home/karina/mqgwas/snpeff/protein_g97_all_indvs/data/rawvcf/mq.call.MqA_CHR08.imput.recode.vcf" > ${BASE_DIR}/data/Individuals.txt
+
+5. change fasta based on file 2
+#for each row in .txt as region -> run the cycle augment region and take last column as sample name change
+
+rm ${BASE_DIR}/novar_reg.txt log.txt
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do   
+    REGION="${CHR}:${FR_BP}-${TO_BP}"
+
+    # VCF -> gzBCF -> Index -> Consensus for hap 1 & 2 & Ref -> fasta
+    "${BASE_DIR}/code/submit_consensus_script_phased.sh" "${REGION}" "${BASE_DIR}"
+
+    # If site has no variants add in manually
+    "${BASE_DIR}/submit_miss_samps.sh" "${REGION}" "${BASE_DIR}"
+
+    # Sample names within fasta files were converted to NSWIDs
+    "${BASE_DIR}/code/submit_samplename_phased.sh" "${REGION}" "${BASE_DIR}"
+
+done < "${BASE_DIR}/data/ann_files/all_CDS_g97.txt" >> log.txt 2>&1
+
+    # Change fasta file name by region -> gene CDS
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do  
+    REGION=$CHR:$FR_BP-$TO_BP  
+    for file in "${BASE_DIR}/data/imput_fasta_trim/"*"${REGION}"*".fa"; do
+        if [[ -e "$file" ]]; then
+            new_file="${file//$REGION/$NAME}"
+            mv "$file" "$new_file"
+            echo "Renamed: $file -> $new_file"
+        fi
+    done
+done < "${BASE_DIR}/data/ann_files/all_CDS_g97.txt"
+
+   # Remove empty files
+#find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_trim/ -size 0 -print -delete
+
+   # Concatenate CDS versions of gene regions
+# rm /home/karina/mqgwas/snpeff/protein/data/imput_fasta_CDS_concat/* # removing preexisting data if rerunning
+
+while IFS=$'\t' read -r NAME STR; do
+
+	touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.${NAME}*_reference.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa"; done
+        
+    while read -r IND; do
+	touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.phase1_${NAME}*_${IND}.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${NAME}_${IND}.fa"; done
+ 
+	touch ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa
+        find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.phase2_${NAME}*_${IND}.fa" | sort | while read file; do cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${NAME}_${IND}.fa"; done
+    done < data/Individuals.txt
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+	
+	# Remove all but first sample name in fasta
+for file in "${BASE_DIR}/data/imput_fasta_CDS_concat/"*"g97.t1"*; do
+    awk '
+        # If the line starts with ">", increment header count for this line
+        /^>/ {
+            header_count[$0]++
+            # If this header is duplicated, skip further occurrences
+            if (header_count[$0] > 1) next
+        }
+        # Print the line if it’s not a duplicate header or any other line
+        { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+done
+
+while IFS=$'\t' read -r NAME STR; do
+
+  # Phase 1 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1*.fa; do
+    if [[ $file == *"${NAME}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${NAME}.fa"
+    fi
+  done
+
+  # Phase 2 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${NAME}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2*.fa; do
+    if [[ $file == *"${NAME}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${NAME}.fa"
+    fi
+  done
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+
+#find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_concat/ -size 0 -print -delete
+
+############ Reverse comp
+# Reversing any fastas with a negative STR
+while IFS=$'\t' read -r NAME STR; do
+
+    # Check if there's a file containing ${NAME} in the /directory path
+    if find ${BASE_DIR}/data/imput_fasta_concat/ -type f -name "*${NAME}*" | grep -q .; then
+
+        # Run the appropriate script based on the value of STR
+        if [[ "$STR" == "-" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${NAME}" "TRUE"
+        elif [[ "$STR" == "+" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${NAME}" "FALSE"
+        fi
+
+    fi
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+
+#### Remove after stop codon (TAA)
+cat  "/home/karina/mqgwas/snpeff/protein_g97_all_indvs/data/imput_fasta_concat_final/mq.phase1_edit_reverse_g97.t1.fa" | awk -v 'RS=>' 'NR>1{print ">" $1; printf("%.4015s\n", $2)}' > "/home/karina/mqgwas/snpeff/protein_g97_all_indvs/data/imput_fasta_concat_final/mq.phase1_edit_reverse_rmstop_g97.t1.fa"
+
+cat  "/home/karina/mqgwas/snpeff/protein_g97_all_indvs/data/imput_fasta_concat_final/mq.phase2_edit_reverse_g97.t1.fa" | awk -v 'RS=>' 'NR>1{print ">" $1; printf("%.4015s\n", $2)}' > "/home/karina/mqgwas/snpeff/protein_g97_all_indvs/data/imput_fasta_concat_final/mq.phase2_edit_reverse_rmstop_g97.t1.fa"
+
+### Phylotree
+conda activate clipkit
+
+while IFS=$'\t' read -r NAME STR; do
+
+    if find ${BASE_DIR}/data/imput_fasta_concat_final/ -type f -name "*${NAME}*" | grep -q .; then
+
+	# PHASE 1
+        clipkit "${BASE_DIR}/data/imput_fasta_concat_final/mq.phase1_edit_reverse_rmstop_${NAME}.fa" -s nt -gc "\-*xXN" -m gappy -g 0.5 -of phylip_relaxed -o "${BASE_DIR}/data/imput_phy/mq.phase1_edit_reverse_rmstop_${NAME}.phy"
+	/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -s "${BASE_DIR}/data/imput_phy/mq.phase1_edit_reverse_rmstop_${NAME}.phy" -B 1000 -alrt 1000 --boot-trees -pre "${BASE_DIR}/data/imput_phytree/mq.phase1_edit_reverse_${NAME}.tree"
+
+	# PHASE 2
+	clipkit "${BASE_DIR}/data/imput_fasta_concat_final/mq.phase2_edit_reverse_rmstop_${NAME}.fa" -s nt -gc "\-*xXN" -m gappy -g 0.5 -of phylip_relaxed -o "${BASE_DIR}/data/imput_phy/mq.phase1_edit_reverse_rmstop_${NAME}.phy"
+	/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -redo -s "${BASE_DIR}/data/imput_phy/mq.phase1_edit_reverse_rmstop_${NAME}.phy" -B 1000 -alrt 1000 --boot-trees -pre "${BASE_DIR}/data/imput_phytree/mq.phase2_edit_reverse_${NAME}.tree"
+
+    fi
+
+done < "${BASE_DIR}/data/genes_transcript_str_g97.txt"
+
+mv ${BASE_DIR}/data/imput_phytree/*contree ${BASE_DIR}/data/imput_contree/
+
+cat ${BASE_DIR}/data/imput_contree/*contree > ${BASE_DIR}/data/imput_contree/alltrees
+
+/data/genomics/apps/iqtree-2.2.2.7-Linux/bin/iqtree2 -con ${BASE_DIR}/data/imput_contree/alltrees
+
+######################################################################################################################## Repeat for all NLRs
+
+BASE_DIR=/home/karina/mqgwas/snpeff/protein_g97_all_indvs/
+
+touch "${BASE_DIR}/novar_reg.txt"
+touch "${BASE_DIR}/novar_reg_concat.txt"
+mkdir -p  ${BASE_DIR}/data/rawvcf
+
+mv "/home/karina/mqgwas/snpeff/protein/code/submit_joinphase.sh" ${BASE_DIR}/code/
+
+cp "/home/karina/mqgwas/snpeff/protein_g97_all_indvs/data/Individuals.txt" "${BASE_DIR}/data/Individuals.txt"
+
+cp "/home/karina/mqgwas/snpeff/protein/data/ann_files/NLR_subs_relevant_CDS_hapA.txt" ${BASE_DIR}/data/ann_files
+cp "/home/karina/mqgwas/snpeff/protein/data/ann_files/nbarc_subs_relevant_CDS_hapA.txt" ${BASE_DIR}/data/ann_files
+cat ${BASE_DIR}/data/ann_files/nbarc_subs_relevant_CDS_hapA.txt >> ${BASE_DIR}/data/ann_files/all_CDS_hapA.txt
+cat ${BASE_DIR}/data/ann_files/NLR_subs_relevant_CDS_hapA.txt >> ${BASE_DIR}/data/ann_files/all_CDS_hapA.txt
+grep -E "g4997.t1|g6020.t1|g6020.t2|g9233.t1|g10387.t1|g9180.t1|g97.t1|g9176.t1|g93.t1" "${BASE_DIR}/data/ann_files/all_CDS_hapA.txt" > "${BASE_DIR}/data/ann_files/all_relevant_CDS_hapA.txt"
+
+awk -F'\t' '{print $5, $4}' OFS='\t' data/ann_files/all_relevant_CDS_hapA.txt > data/genes_transcript_str.txt
+
+
+# Create separate chr files with ALL individuals
+
+for CHR in MqA_CHR01 MqA_CHR02 MqA_CHR03 MqA_CHR04 MqA_CHR05 MqA_CHR06 MqA_CHR07 MqA_CHR08 MqA_CHR09 MqA_CHR10 MqA_CHR11; do
+  /usr/bin/vcftools --gzvcf "/home/karina/mqgwas/iter_4/gwas_7/Mq_filt_cat.beagle.vcf.gz" --chr ${CHR} --recode --recode-INFO-all --out ${BASE_DIR}/data/rawvcf/mq.call.${CHR}.imput
+done
+
+5. change fasta based on file 2
+#for each row in .txt as region -> run the cycle augment region and take last column as sample name change
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do   
+    REGION="${CHR}:${FR_BP}-${TO_BP}"
+
+    # VCF -> gzBCF -> Index -> Consensus for hap 1 & 2 & Ref -> fasta
+    "${BASE_DIR}/code/submit_consensus_script_phased.sh" "${REGION}" "${BASE_DIR}"
+	
+    # Sample names within fasta files were converted to NSWIDs
+    "${BASE_DIR}/code/submit_samplename_phased.sh" "${REGION}" "${BASE_DIR}"
+
+done < "${BASE_DIR}/data/ann_files/all_relevant_CDS_hapA.txt"
+
+while IFS=$'\t' read -r CHR FR_BP TO_BP STR NAME; do  
+    REGION=$CHR:$FR_BP-$TO_BP  
+    for file in "${BASE_DIR}/data/imput_fasta_trim/"*"${REGION}"*".fa"; do
+        if [[ -e "$file" ]]; then
+            new_file="${file//$REGION/$NAME}"
+            mv "$file" "$new_file"
+            echo "Renamed: $file -> $new_file"
+        fi
+    done
+done < "${BASE_DIR}/data/ann_files/all_relevant_CDS_hapA.txt"
+
+# Find empty files
+find ${BASE_DIR}/data/imput_fasta_trim/ -size 0
+
+ls ${BASE_DIR}/data/imput_fasta_trim/*reference*
+
+rm ${BASE_DIR}/novar_referenceCDS.txt; touch ${BASE_DIR}/novar_referenceCDS.txt
+
+while IFS=$'\t' read -r NAME STR; do
+  gene=$(echo "$NAME" | cut -d '.' -f 1)
+
+  if [[ -f $file ]]; then
+    rm "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${gene}_reference.fa"
+    touch "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${gene}_reference.fa"
+  fi
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+
+while IFS=$'\t' read -r NAME STR; do
+  gene=$(echo "$NAME" | cut -d '.' -f 1)
+
+  if [[ $NAME == "${gene}"* ]]; then 
+    # Concatenating reference CDS
+    find "${BASE_DIR}/data/imput_fasta_trim/" -type f -name "mq.trim.${NAME}*_reference.fa" | sort | while read -r file; do
+      cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${gene}_reference.fa"
+    done
+
+	# Phase 1
+    # Concatenating each individual CDS. If file does not exist, replace with reference file
+    while read -r IND; do
+      file="${BASE_DIR}/data/imput_fasta_trim/mq.trim.phase1_${NAME}_${IND}.fa"
+
+      if [[ -f $file ]]; then
+        cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${gene}_${IND}.fa"
+      else
+        cp "${BASE_DIR}/data/imput_fasta_trim/mq.trim.${NAME}_reference.fa"  "${BASE_DIR}/tmp.fa"
+        sed -i "s/reference/${IND}/" "${BASE_DIR}/tmp.fa"
+        cat "${BASE_DIR}/tmp.fa" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1_${gene}_${IND}.fa"
+        echo "$NAME for $IND replaced with reference in concatenated CDS" >> "${BASE_DIR}/data/concatenation_log.txt"
+        rm "${BASE_DIR}/tmp.fa"
+      fi
+    done < "${BASE_DIR}/data/Individuals.txt"
+
+	# Phase 2
+    # Concatenating each individual CDS. If file does not exist, replace with reference file
+    while read -r IND; do
+      file="${BASE_DIR}/data/imput_fasta_trim/mq.trim.phase2_${NAME}_${IND}.fa"
+
+      if [[ -f $file ]]; then
+        cat "$file" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${gene}_${IND}.fa"
+      else
+        cp "${BASE_DIR}/data/imput_fasta_trim/mq.trim.${NAME}_reference.fa"  "${BASE_DIR}/tmp.fa"
+        sed -i "s/reference/${IND}/" "${BASE_DIR}/tmp.fa"
+        cat "${BASE_DIR}/tmp.fa" >> "${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2_${gene}_${IND}.fa"
+        echo "$NAME for $IND replaced with reference in concatenated CDS" >> "${BASE_DIR}/data/concatenation_log.txt"
+        rm "${BASE_DIR}/tmp.fa"
+      fi
+    done < "${BASE_DIR}/data/Individuals.txt"
+  fi
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+	
+	# Remove duped sample names
+for file in "${BASE_DIR}/data/imput_fasta_CDS_concat/"*; do
+    awk '
+        # If the line starts with ">", increment header count for this line
+        /^>/ {
+            header_count[$0]++
+            # If this header is duplicated, skip further occurrences
+            if (header_count[$0] > 1) next
+        }
+        # Print the line if it’s not a duplicate header or any other line
+        { print }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+done
+
+#find /home/karina/mqgwas/snpeff/protein/data/imput_fasta_trim/ -size 0 -print -delete
+#rm ${BASE_DIR}/data/imput_fasta_concat/*
+
+while IFS=$'\t' read -r NAME STR; do
+
+  gene=$(echo "$NAME" | cut -d '.' -f 1)
+
+  # Phase 1 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${gene}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${gene}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${gene}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${gene}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase1*.fa; do
+    if [[ $file == *"${gene}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${gene}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase1_${gene}.fa"
+    fi
+  done
+
+  # Phase 2 - concats genes and samples
+
+  rm ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${gene}.fa
+  touch ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${gene}.fa
+  cat ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.${gene}_reference.fa >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${gene}.fa
+  for file in ${BASE_DIR}/data/imput_fasta_CDS_concat/mq.phase2*.fa; do
+    if [[ $file == *"${gene}"* ]]; then
+      cat $file >> ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${gene}.fa
+      echo "Concatenated $file to ${BASE_DIR}/data/imput_fasta_concat/mq.phase2_${gene}.fa"
+    fi
+  done
+
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+
+
+############ Reverse comp
+# Reversing any fastas with a negative STR
+while IFS=$'\t' read -r NAME STR; do
+
+    gene=$(echo "$NAME" | cut -d '.' -f 1)
+
+    # Check if there's a file containing ${NAME} in the /directory path
+    if find ${BASE_DIR}/data/imput_fasta_concat/ -type f -name "*${gene}*" | grep -q .; then
+
+        # Run the appropriate script based on the value of STR
+        if [[ "$STR" == "-" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${gene}" "TRUE"
+        elif [[ "$STR" == "+" ]]; then
+            "${BASE_DIR}/code/convert_revcomp.sh" "${BASE_DIR}" "${gene}" "FALSE"
+        fi
+
+    fi
+
+done < "${BASE_DIR}/data/genes_transcript_str.txt"
+
+
+###################### BLASTing g97
+# BLASTing 
+BASE_DIR=/home/karina/mqgwas/snpeff
+GENE=g97
+#INDIVIDUAL=S_1029_S66_L003
+
+for INDIVIDUAL in S_1029_S66_L003 S_658_S33; do
+
+    awk '{if(NR==1) {print $0} else {if($0 ~ /^>/) {print "\n"$0} else {printf $0}}}' ${BASE_DIR}/protein_all_indivs_catphases/data/imput_fasta_CDS_concat/mq.phase1_${GENE}_${INDIVIDUAL}.fa > ${BASE_DIR}/blast/mq.phase1_single_${GENE}_${INDIVIDUAL}.fa # Collapses fasta
+    sed -i -e '$a\' ${BASE_DIR}/blast/mq.phase1_single_${GENE}_${INDIVIDUAL}.fa
+
+    for hap in hapA hapB; do
+        /data/genomics/apps/blast/ncbi-blast-2.14.0+/bin/blastn -db /home/jgb/mqgwas/hits/dbs/Mqui_v1_${hap}.fasta -query ${BASE_DIR}/blast/mq.phase1_single_${GENE}_${INDIVIDUAL}.fa -out ${BASE_DIR}/blast/output/mq.phase1_single_${GENE}_${INDIVIDUAL}_BLAST_${hap}.blast -evalue 1e-6 -outfmt 6
+    done
+
+    rm ${BASE_DIR}/blast/mq.phase1_single_${GENE}_${INDIVIDUAL}.fa
+done
+
+
+
+

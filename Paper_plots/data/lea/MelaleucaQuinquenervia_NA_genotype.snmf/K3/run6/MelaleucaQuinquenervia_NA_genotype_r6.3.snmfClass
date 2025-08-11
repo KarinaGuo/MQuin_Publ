@@ -1,0 +1,6 @@
+new("snmfClass", directory = "K3/run6/", snmfClass.file = "MelaleucaQuinquenervia_NA_genotype_r6.3.snmfClass", 
+    K = 3L, run = 6L, CPU = 1L, seed = 194198314L, alpha = 10, 
+    percentage = 0.05, I = 0L, iterations = 200L, entropy = TRUE, 
+    tolerance = 1e-05, crossEntropy = 0.0940170716978387, ploidy = 2L, 
+    Q.input.file = "", Q.output.file = "MelaleucaQuinquenervia_NA_genotype_r6.3.Q", 
+    G.output.file = "MelaleucaQuinquenervia_NA_genotype_r6.3.G")

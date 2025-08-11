@@ -1,0 +1,123 @@
+Parents were filtered likewise to Seedlings. 
+GWAS was run using data from Mquin_samples_pheno.csv, which includes meta data for seedlings including height and COI of all seedlings, including those that didn't get genotypes. COI was averaged by parent, and square-rooted to make it more normally distributed.
+Second GWAS was run using data from Mquin breedingcoeff_parent_more_pheno.csv where LeavesShootInfect were changed to be ordinal. 1-5 = 1; 5-10 = 2; 10-50 =3; 50-90 = 4; 90+ = 5; LeavesShootInfect were given a 0 when rust_infection == 0 and 0A & LeavesShootInfect == NA. LeavesShootInfect were given a NA when rust_infection == NA & LeavesShootInfect == NA. Only distinct individuals from this were kept. (docker run -v /home/karina/mqgwas/parent_iter_1/gwas_2/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf breedingcoeff_parent_more_pheno.csv -ap -lmm)
+
+Calculated breeding value using an animal model in R using package breedR. Generated an output of breeding values (fitted animal model) and linked to mum ID. Ran GWAS 
+docker run -v /home/karina/mqgwas/parent_iter_1/gwas_4/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf breedingcoeff_parent_animalmdlBV.csv -ap -lmm
+
+Repeated above for both BV calculations of COI and RGR
+docker run -v /home/karina/mqgwas/parent_iter_1/gwas_5/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle.vcf -pf breedingcoeff_parent_animalmdlBV_RGR.csv -ap -lmm --minaf 0.05
+cp /home/karina/mqgwas/iter_2/code/r/* "/home/karina/mqgwas/parent_iter_2/code/r/"
+cp /recer1/karina/parents/iter_1/data/meta/* /home/karina/mqgwas/parent_iter_2/data/meta/
+
+
+####
+
+BASE_DIR=/home/karina/mqgwas/parent_iter_2
+
+# Setting up directory structure and sym-linking relevant raw files do local directory 
+
+mkdir -p ${BASE_DIR}/data/meta/ 
+mkdir -p ${BASE_DIR}/data/rawvcf/ 
+mkdir -p ${BASE_DIR}/data/filtvcf_DP6_GQ20/
+mkdir -p ${BASE_DIR}/data/filtvcf_indels_biallelic/
+mkdir -p ${BASE_DIR}/data/filtvcf_exlowdepth/
+mkdir -p ${BASE_DIR}/data/filtvcf_missing/
+mkdir -p ${BASE_DIR}/data/filtvcf_hwe/
+mkdir -p ${BASE_DIR}/data/qualvcf/
+mkdir -p ${BASE_DIR}/data/catvcf/
+mkdir -p ${BASE_DIR}/code/sh/
+mkdir -p ${BASE_DIR}/code/r/
+
+ln -s /recer1/karina/seedlings/iter_4/data/rawvcf/* ${BASE_DIR}/data/rawvcf/.
+
+cp /home/karina/mqgwas/parent_iter_2/code/ ${BASE_DIR}/
+
+
+### Filtering
+
+# Removing indels and only keeping biallelic sites, removing individuals not phenotyped,
+cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 96 ${BASE_DIR}/code/sh/submit_vcftools_script.sh {} "${BASE_DIR}"
+
+# From the output of mean depth per individual, concatenate the metric output file into one file
+mv "${BASE_DIR}/data/qualvcf/mq.depth.MqA_CHR01:1-5000000.out.idepth" "${BASE_DIR}/data/evalmetric_Mq_depth_regiondepth_file.out.idepth"
+
+ls -d ${BASE_DIR}/data/qualvcf/* > ${BASE_DIR}/data/meta/depth_file_list.txt
+
+for file in $(cat ${BASE_DIR}/data/meta/depth_file_list.txt); do
+    tail -n +2 "$file" >> "${BASE_DIR}/data/evalmetric_Mq_depth_regiondepth_file.out.idepth"
+done
+
+cat "/home/karina/mqgwas/parent_iter_2/data/evalmetric_Mq_depth_phenosub_file.out.idepth" >> "/home/karina/mqgwas/parent_iter_2/data/evalmetric_Mq_depth_regiondepth_file.out.idepth"
+# In R filter the depth metrics using process_depth_data.R which is:
+Rscript --vanilla ${BASE_DIR}/code/r/process_depth_data.R ${BASE_DIR}
+
+# Masking sites with DP6 GQ20. Removed all low depth sites (< mean depth 4). Removing by missingness 200
+cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 48 ${BASE_DIR}/code/sh/submit_vcftools_script_2.sh {} "${BASE_DIR}"
+
+# Removing by hwe 1e-4
+cat ${BASE_DIR}/data/meta/Mqui_v1_hap_regions.tsv | parallel -j 48 ${BASE_DIR}/code/sh/submit_vcftools_hwe.sh {} "${BASE_DIR}"
+
+
+#Concatenated vcf files filtered for depth and missingness
+#Copied over /home/jgb/mqgwas/data/meta/Mqui_region_vcfs.txt which was generated using /home/jgb/mqgwas/code/py/region2vcffilenames.py and changed file paths
+/data/genomics/apps/bcftools-1.17/bcftools concat -f ${BASE_DIR}/data/meta/Mqui_region_vcfs_miss.txt -Oz -o ${BASE_DIR}/data/catvcf/Mq_filtmiss_cat.vcf.gz
+
+
+# beagle: impute sporadic missing genotypes
+#java -jar -Xmx900g /data/genomics/apps/beagle/beagle.22Jul22.46e.jar gt=${BASE_DIR}/data/catvcf/Mq_filtmiss_cat.vcf.gz out=${BASE_DIR}/data/catvcf/Mq_filt_cat.beagle impute=true nthreads=48
+
+
+
+###############################################
+Gwas_6
+
+Running hwe 1e-4 for GAPIT_20
+
+mkdir /home/karina/mqgwas/parent_iter_1/gwas_6
+
+/usr/bin/vcftools --vcf "/home/karina/mqgwas/parent_iter_1/gwas_5/Mq_filt_cat.beagle.vcf" --hwe 1e-5 --recode --recode-INFO-all --out /home/karina/mqgwas/parent_iter_1/gwas_6/Mq_filthwe_cat.beagle.vcf
+#After filtering, kept 214 out of 214 Individuals
+
+docker run -v /home/karina/mqgwas/parent_iter_1/gwas_6/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filthwe_cat.beagle.vcf.recode.vcf -pf breedingcoeff_parent_animalmdlBV_RGR.csv -ap -lmm --minaf 0.05
+
+########
+Gwas_7 - rerunning gwas_5 + gwas_2 without technical replicates - 188 individuals (no techreps, chose indivs with the highest mean depth coverage across all regions)
+
+cd "/home/karina/mqgwas/parent_iter_1/gwas_7/"
+cp "/recer1/karina/parents/iter_1/gwas_6/breedingcoeff_parent_animalmdlBV_RGR.csv" . # edited to remove phenotype rows
+rsync -arv "/recer1/karina/parents/iter_1/data/catvcf/Mq_filt_cat.beagle.vcf" .
+
+# tabix vcf
+bgzip -c "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle.vcf" >  "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle_bcf.vcf.gz"
+tabix "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle_bcf.vcf.gz"
+bgzip -d "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle_bcf.vcf.gz"
+
+docker run -v /home/karina/mqgwas/parent_iter_1/gwas_7/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle_bcf.vcf.gz -pf breedingcoeff_parent_animalmdlBV_RGR_field.csv -ap -lmm --minaf 0.05
+
+# Plotting by thinning into 1 out of 100 lines- 1. create copy to override perm 2. thin 3. rm copy- repeat
+cp "/home/karina/mqgwas/parent_iter_1/gwas_7/Output/Linear_Mixed_Model/fitted.res.animal./fitted.res.animal._20250402_224526/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.txt" "SNP_Output_thinned/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.copy.txt"
+awk 'NR % 300 == 1' "SNP_Output_thinned/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.copy.txt" > "SNP_Output_thinned/fitted.res.animal.gwas7.parentiter1.res.thin.txt"
+rm "SNP_Output_thinned/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.copy.txt"
+
+
+rm Mq_filt_cat.beagle.vcf
+
+########
+Gwas_7 - rerunning gwas_7 with maf of 0.1
+
+rsync -arv "/recer1/karina/parents/iter_1/data/catvcf/Mq_filt_cat.beagle.vcf" .
+
+bgzip -c "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle.vcf" >  "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle_bcf.vcf.gz"
+tabix "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle_bcf.vcf.gz"
+bgzip -d "/home/karina/mqgwas/parent_iter_1/gwas_7/Mq_filt_cat.beagle_bcf.vcf.gz"
+
+docker run -v /home/karina/mqgwas/parent_iter_1/gwas_7/:/vcf2gwas/ fvogt257/vcf2gwas -v Mq_filt_cat.beagle_bcf.vcf.gz -pf breedingcoeff_parent_animalmdlBV_RGR_field.csv -ap -lmm --minaf 0.1
+
+# Plotting by thinning into 1 out of 100 lines- 1. create copy to override perm 2. thin 3. rm copy- repeat
+cp "/home/karina/mqgwas/parent_iter_1/gwas_7/Output/Linear_Mixed_Model/fitted.res.animal./fitted.res.animal._20250508_233727/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.txt" "SNP_Output_thinned/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.copy.txt"
+awk 'NR % 5 == 1' "SNP_Output_thinned/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.copy.txt" > "SNP_Output_thinned/fitted.res.animal.gwas7.parentiter1.res.thin.txt"
+rm "SNP_Output_thinned/fitted.res.animal._mod_sub_breedingcoeff_parent_animalmdlBV_RGR_field.part1_Mq_filt_cat.beagle_bcf.assoc.copy.txt"
+
+
+rm Mq_filt_cat.beagle.vcf
