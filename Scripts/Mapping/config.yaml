@@ -1,0 +1,13 @@
+trim_adapt1: CTGTCTCTTATACACATCT
+trim_adapt2: CTGTCTCTTATACACATCT
+trim_minq: 24
+trim_twin: 8
+adapterremoval_path: AdapterRemoval
+trim_threads: 1
+refseq: ref/Mqui_v1_hapA.fasta
+map_threads: 1
+snp_threads: 32
+bwa_path: /data/genomics/apps/bwa/bwa
+samtools_path: /data/genomics/apps/samtools-1.6/samtools
+freebayes_path: /data/genomics/apps/freebayes/freebayes-parallel
+fb_gen_reg_path: /data/genomics/apps/freebayes/fasta_generate_regions.py
