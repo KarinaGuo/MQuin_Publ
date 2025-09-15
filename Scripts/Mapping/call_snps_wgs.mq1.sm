@@ -5,34 +5,26 @@ samples_table=pd.read_table("meta/sample_table.tsv")
 samples_table.set_index('file',inplace=True)
 filepair_ID=samples_table.index.unique(level=None)
 NSW_numbers = samples_table["sample"].values.tolist()
-lane_ID=["L001"]
-
-rg_dict={}
-for i in range(len(filepair_ID)):
-    nn=NSW_numbers[i]
-    irg="r" + "\"@RG\tID:" + nn + "\tSM:" + nn + "\""
-    rg_dict[filepair_ID[i]]=NSW_numbers[i]
-
 
 rule all:
     input:
-        expand("raw/{samp}_{lane}_R1_001.fastq.gz",samp=filepair_ID,lane=lane_ID),
-        expand("raw/{samp}_{lane}_R2_001.fastq.gz",samp=filepair_ID,lane=lane_ID),
-        expand("proc/{samp}_mkdup.bai",samp=filepair_ID),
-        "snp/variant_raw.vcf"
+        expand("raw/{samp}_R1_001.fastq.gz",samp=filepair_ID),
+        expand("raw/{samp}_R2_001.fastq.gz",samp=filepair_ID),
+        expand("/data/jgb/mq/proc/{samp}_mkdup.bai",samp=filepair_ID),
+        "/data/jgb/mq/snp/variant_raw.vcf"
 
 rule trim:
     input:
-        rp1="raw/{samp}_{lane}_R1_001.fastq.gz",
-        rp2="raw/{samp}_{lane}_R2_001.fastq.gz"
+        rp1="raw/{samp}_R1_001.fastq.gz",
+        rp2="raw/{samp}_R2_001.fastq.gz"
     output:
-        rp1="trim/{samp}_{lane}_p1.fastq.gz",
-        rp2="trim/{samp}_{lane}_p2.fastq.gz",
-        rd="trim/{samp}_{lane}_d.fastq.gz",
-        st="trim/{samp}_{lane}_st.fastq.gz",
-        set="trim/{samp}_{lane}_settings",
-        col="trim/{samp}_{lane}_cl.fastq.gz",
-        ct="trim/{samp}_{lane}_ct.fastq.gz"
+        rp1="trim/{samp}_p1.fastq.gz",
+        rp2="trim/{samp}_p2.fastq.gz",
+        rd="trim/{samp}_d.fastq.gz",
+        st="trim/{samp}_st.fastq.gz",
+        set="trim/{samp}_settings",
+        col="trim/{samp}_cl.fastq.gz",
+        ct="trim/{samp}_ct.fastq.gz"
     params:
         adapter1=config['trim_adapt1'],
         adapter2=config['trim_adapt2'],
@@ -48,11 +40,11 @@ rule trim:
 
 rule cat_se_fq:
     input:
-        st="trim/{samp}_{lane}_st.fastq.gz",
-        col="trim/{samp}_{lane}_cl.fastq.gz",
-        ct="trim/{samp}_{lane}_ct.fastq.gz"
+        st="trim/{samp}_st.fastq.gz",
+        col="trim/{samp}_cl.fastq.gz",
+        ct="trim/{samp}_ct.fastq.gz"
     output:
-        se="trim/{samp}_{lane}_se.fastq.gz"
+        se="trim/{samp}_se.fastq.gz"
     shell:
         """
         zcat {input.st} {input.col} {input.ct} | gzip > {output.se}
@@ -61,13 +53,13 @@ rule cat_se_fq:
 rule mappe:
     input:
         ref=config['refseq'],
-        rp1="trim/{samp}_{lane}_p1.fastq.gz",
-        rp2="trim/{samp}_{lane}_p2.fastq.gz"
+        rp1="trim/{samp}_p1.fastq.gz",
+        rp2="trim/{samp}_p2.fastq.gz"
     output:
-        bam="map/{samp}_{lane}_pe.bam"
+        bam="map/{samp}_pe.bam"
     threads: config['map_threads']
     log:
-        "map/{samp}_{lane}.pe.log"
+        "map/{samp}_pe.log"
     params:
         rg=r"@RG\tID:{samp}\tSM:{samp}",
         #rg=lambda wildcards: rg_dict[ wildcards.samp ],
@@ -83,10 +75,10 @@ rule mapse:
         ref=config['refseq'],
         rse=rules.cat_se_fq.output.se
     output:
-        bam="map/{samp}_{lane}_se.bam"
+        bam="map/{samp}_se.bam"
     threads: config['map_threads']
     log:
-        "map/{samp}_{lane}.se.log"
+        "map/{samp}_se.log"
     params:
         rg=r"@RG\tID:{samp}\tSM:{samp}",
         #rg=lambda wildcards: rg_dict[ wildcards.samp ],
@@ -100,13 +92,13 @@ rule mapse:
 
 rule merge_bams:
     input:
-        sebam=expand("map/{{samp}}_{lane}_se.bam",lane=lane_ID),
-        pebam=expand("map/{{samp}}_{lane}_pe.bam",lane=lane_ID)
+        sebam="map/{samp}_se.bam",
+        pebam="map/{samp}_pe.bam"
     output:
-        temp("proc/{samp}_merge.bam")
+        temp("/data/jgb/mq/proc/{samp}_merge.bam")
     threads: config['map_threads']
     log:
-        "proc/{samp}.merge.log"
+        "/data/jgb/mq/proc/{samp}.merge.log"
     params:
         samtools=config['samtools_path']
     shell:
@@ -117,12 +109,12 @@ rule merge_bams:
 
 rule sortn:
     input:
-        "proc/{samp}_merge.bam"
+        "/data/jgb/mq/proc/{samp}_merge.bam"
     output:
-        temp("proc/{samp}_srtn.bam")
+        temp("/data/jgb/mq/proc/{samp}_srtn.bam")
     threads: config['map_threads']
     log:
-        "proc/{samp}.sortn.log"
+        "/data/jgb/mq/proc/{samp}.sortn.log"
     params:
         samtools=config['samtools_path']
     shell:
@@ -132,12 +124,12 @@ rule sortn:
 
 rule fixmate:
     input:
-        "proc/{samp}_srtn.bam"
+        "/data/jgb/mq/proc/{samp}_srtn.bam"
     output:
-        temp("proc/{samp}_fixmate.bam")
+        temp("/data/jgb/mq/proc/{samp}_fixmate.bam")
     threads: config['map_threads']
     log:
-        "proc/{samp}.fixmate.log"
+        "/data/jgb/mq/proc/{samp}.fixmate.log"
     params:
         samtools=config['samtools_path']
     shell:
@@ -147,12 +139,12 @@ rule fixmate:
 
 rule sortc:
     input:
-        "proc/{samp}_fixmate.bam"
+        "/data/jgb/mq/proc/{samp}_fixmate.bam"
     output:
-        temp("proc/{samp}_srtc.bam")
+        temp("/data/jgb/mq/proc/{samp}_srtc.bam")
     threads: config['map_threads']
     log:
-        "proc/{samp}.sortc.log"
+        "/data/jgb/mq/proc/{samp}.sortc.log"
     params:
         samtools=config['samtools_path']
     shell:
@@ -162,12 +154,12 @@ rule sortc:
 
 rule mkdup:
     input:
-        "proc/{samp}_srtc.bam"
+        "/data/jgb/mq/proc/{samp}_srtc.bam"
     output:
-        "proc/{samp}_mkdup.bam"
+        "/data/jgb/mq/proc/{samp}_mkdup.bam"
     threads: config['map_threads']
     log:
-        "proc/{samp}.mkdup.log"
+        "/data/jgb/mq/proc/{samp}.mkdup.log"
     params:
         samtools=config['samtools_path']
     shell:
@@ -177,12 +169,12 @@ rule mkdup:
 
 rule index_bam:
     input:
-        "proc/{samp}_mkdup.bam"
+        "/data/jgb/mq/proc/{samp}_mkdup.bam"
     output:
-        "proc/{samp}_mkdup.bai"
+        "/data/jgb/mq/proc/{samp}_mkdup.bai"
     threads: config['map_threads']
     log:
-        "proc/{samp}.index.log"
+        "/data/jgb/mq/proc/{samp}.index.log"
     params:
         samtools=config['samtools_path']
     shell:
@@ -192,15 +184,15 @@ rule index_bam:
 
 rule call_snps:
     input:
-        bams=expand("proc/{samp}_mkdup.bam", samp=filepair_ID),
-        bais=expand("proc/{samp}_mkdup.bai", samp=filepair_ID),
+        bams=expand("/data/jgb/mq/proc/{samp}_mkdup.bam", samp=filepair_ID),
+        bais=expand("/data/jgb/mq/proc/{samp}_mkdup.bai", samp=filepair_ID),
         ref=config['refseq']
 #        ,reg=config['regions']
     output:
-        "snp/variant_raw.vcf"
+        "/data/jgb/mq/snp/variant_raw.vcf"
     threads: config['snp_threads']
     log:
-        "snp/fb.log"
+        "/data/jgb/mq/snp/fb.log"
     params:
         freebayes=config['freebayes_path'],
         fb_gen_reg=config['fb_gen_reg_path']
