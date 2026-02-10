@@ -1,7 +1,8 @@
-# run Calculating metrics.R which is used for the metadata
-
+# Following the tutorial from https://raw.githubusercontent.com/wiki/famuvie/breedR/Overview.pdf
 seedlings_all <- read.csv ("~/RBGSyd_Technical Officer/MQuin/Processing Meta/Mquin_samples_pheno.csv") # Meta data for seedlings including height and COI of all seedlings, including those that didn't get genotypes
-colnames(seedlings_all)[which(names(seedlings_all)=="FID")] <- "NSWID"
+sample_list_mquin_PBI <- read.csv ("~/RBGSyd_Technical Officer/MQuin/Processing Meta/sample_list_mquin_PBI.csv")
+colnames(seedlings_all) <- c("IID", "ph1", "ph2", "COI", "NSWID", "n","species", "latitude", 'longitude', "pop", "ID")
+seedlings_all <- left_join(seedlings_all, sample_list_mquin_PBI)
 library(tidyverse)
 library(breedR)
 library(lme4)
@@ -9,28 +10,31 @@ library(lme4)
 
 ### For raw COI
 # Converting Mum FID to numeric
+#colnames(seedlings_all)[11] <- "NSWID"
 NSWID <- unique(seedlings_all$NSWID)
 mum_num <- max(seedlings_all$IID) + as.numeric(seq(1, length(NSWID)))
 mum_num_fid <- as.data.frame(cbind(mum_num, NSWID))
 dataset <- merge(seedlings_all, mum_num_fid, by.x ='NSWID', by.y='NSWID')
 
-dad_num <- seq(from=max(mum_num),by=1,to=as.numeric(max(mum_num)+nrow(dataset)-1))
-dataset <- dataset %>% dplyr::select (IID, mum_num, COI) %>% mutate (dad = dad_num) %>% filter (!is.na(COI)) 
-colnames(dataset) <- c('self', 'mum', "phe_X", 'dad')
-dataset <- dataset [, c('self', 'dad', 'mum', 'phe_X')]
+#dad_num <- seq(from=max(mum_num),by=1,to=as.numeric(max(mum_num)+nrow(dataset)-1))
+dad_num <- rep(0, nrow(dataset))
+dataset <- dataset %>% dplyr::select (IID, mum_num, COI, tray) %>% mutate (dad = dad_num) %>% filter (!is.na(COI)) 
+colnames(dataset) <- c('self', 'mum', "phe_X", "tray", 'dad')
+dataset <- dataset [, c('self', 'dad', 'mum', 'phe_X', 'tray')]
 
 
 dataset$mum <- as.numeric(dataset$mum)
 
-#dataset$phe_X <- dataset$phe_X^0.25
-dataset$phe_X <- dataset$phe_X
-dataset <- dataset %>% group_by (mum) %>% mutate(n=n()) %>% ungroup() %>% filter(n>3) %>% select(-c(n)) %>% data.frame() # 1020 indivs vs orig 1098
+dataset$phe_X <- dataset$phe_X^0.25
+#dataset$phe_X <- dataset$phe_X
+dataset <- dataset %>% group_by (mum) %>% mutate(n=n()) %>% ungroup() %>% filter(n>3) %>% dplyr::select(-c(n)) %>% data.frame() # 1020 indivs vs orig 1098
 
 
 res.animal <- remlf90(fixed = phe_X ~ 1,
                       genetic = list(model = 'add_animal',
                                      pedigree = dataset[, 1:3],
                                      id = 'mum'),
+                      random = ~ tray,
                       data = dataset)
 summary(res.animal)
 
@@ -80,7 +84,7 @@ ordered_pred_gt_dataset_coloured$mum <- factor(
 ## Removing individual with only one sample
 ordered_coloured_rmlow <- ordered_pred_gt_dataset_coloured %>% group_by(mum) %>% mutate (n=n()) %>% ungroup() %>% filter(n>2)
 
-plotly::ggplotly(ggplot() + 
+ggplot() + 
   geom_point(data = ordered_pred_gt_dataset_coloured, aes(x=mum, y=phe_X, color = random_colours), alpha = 0.3) +
   geom_boxplot(data = ordered_pred_gt_dataset_coloured, aes(x=mum, y=phe_X, color = random_colours), alpha = 0.1) +
   geom_point(data = ordered_pred_gt_dataset_coloured, aes(x=mum, y=fitted.res.animal.),color = "black", shape=15, size = 1) +
@@ -89,7 +93,7 @@ plotly::ggplotly(ggplot() +
   #theme(legend.position = "none",  axis.text.x=element_blank(),  axis.ticks.x=element_blank()) +
   theme(axis.text.x = element_text(angle = 90, hjust = 20)) +
   theme(legend.position = "none") +
-  labs(y="COI", x = "Maternal ID (Sorted)"))
+  labs(y="COI", x = "Maternal ID (Sorted)")
 
 # Generating GWAS phenotype dataset
 parent_meta_subset <- parent_meta[,c("NSWID","sample_lib_NSW")]
@@ -109,6 +113,12 @@ BV_parent_sort_uniq[c(1:10, (nrow(BV_parent_sort_uniq)-10):(nrow(BV_parent_sort_
 
 write.table(BV_parent_sort_uniq[c(1:10, (nrow(BV_parent_sort_uniq)-10):(nrow(BV_parent_sort_uniq))),c("sample_lib_NSW")], file = "~/RBGSyd_Technical Officer/MQuin/Parent/SMCPP/Run_11/indvs.txt", row.names = F, col.names = F, quote = F)
 
+
+
+
+
+
+
 ################################################################## For raw RGR
 # Calculating RGR
 sample_list_mquin_PBI$HT1 <- as.numeric(sample_list_mquin_PBI$HT1)
@@ -125,9 +135,9 @@ mum_num <- max(seedlings_all$IID) + as.numeric(seq(1, length(NSWID)))
 mum_num_fid <- as.data.frame(cbind(mum_num, NSWID))
 dataset <- left_join(seedlings_all, mum_num_fid)
 
-dataset <- dataset %>% select (IID, mum_num, RGR) %>% filter (!is.na(RGR)) %>% mutate (dad = 0)
-colnames(dataset) <- c('self', 'mum', "phe_X", 'dad')
-dataset <- dataset [, c('self', 'dad', 'mum', 'phe_X')]
+dataset <- dataset %>% select (IID, mum_num, RGR, tray) %>% filter (!is.na(RGR)) %>% mutate (dad = 0)
+colnames(dataset) <- c('self', 'mum', "phe_X", 'tray', 'dad')
+dataset <- dataset [, c('self', 'dad', 'mum', 'phe_X', 'tray')]
 
 dataset$mum <- as.numeric(dataset$mum)
 
@@ -136,6 +146,7 @@ res.animal_RGR <- remlf90(fixed = phe_X ~ 1,
                       genetic = list(model = 'add_animal',
                                      pedigree = dataset[, 1:3],
                                      id = 'mum'),
+                      random = ~ tray,
                       data = dataset)
 summary(res.animal_RGR)
 
