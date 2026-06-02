@@ -1,4 +1,4 @@
-# MQuin_Publ
+# Genomic prediction of disease resistance provides a path to marker assisted restoration in a wetland foundation tree species
 Final repository for code and small data repository.
 
 ## Directory 'Paper_plots'
